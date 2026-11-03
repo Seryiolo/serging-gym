@@ -144,7 +144,7 @@ export default withErrorHandling(async function authHandler(req, res) {
     }
 
     return sendJson(res, 404, {
-      error: 'No existe cuenta autorizada con ese email. Puedes solicitar acceso.',
+      error: 'Email no reconocido. Revisa que esté bien escrito.',
     })
   }
 

@@ -4,8 +4,11 @@
  */
 
 function getTursoConfig() {
-  const rawUrl = (process.env.TURSO_DATABASE_URL || '').trim()
-  const authToken = (process.env.TURSO_AUTH_TOKEN || '').trim()
+  const rawUrl = (process.env.TURSO_DATABASE_URL || '').replace(/['"\s]+/g, '')
+  const authToken = (process.env.TURSO_AUTH_TOKEN || '')
+    .trim()
+    .replace(/^Bearer\s+/i, '')
+    .replace(/['"\s]+/g, '')
 
   if (!rawUrl) {
     const err = new Error('Falta configurar TURSO_DATABASE_URL en el servidor.')

@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { User, Bell, ShieldCheck, LogOut, X, Check, UserCheck } from 'lucide-react'
-import { authAdminUsers, authApproveUser } from '../lib/api'
+import { User, Bell, ShieldCheck, LogOut, X } from 'lucide-react'
 
 const TAB_LABELS = {
   home: 'HOME',
@@ -18,36 +17,6 @@ export default function Header({
   onLogout,
 }) {
   const [modalAbierto, setModalAbierto] = useState(false)
-  const [adminUsers, setAdminUsers] = useState([])
-  const [cargandoAdmin, setCargandoAdmin] = useState(false)
-  const [errorAdmin, setErrorAdmin] = useState('')
-
-  const abrirPerfil = async () => {
-    setModalAbierto(true)
-    if (user?.rol === 'admin') {
-      setCargandoAdmin(true)
-      setErrorAdmin('')
-      try {
-        const res = await authAdminUsers()
-        setAdminUsers(res?.users || [])
-      } catch (err) {
-        setErrorAdmin(err.message || 'No se pudieron cargar las solicitudes')
-      } finally {
-        setCargandoAdmin(false)
-      }
-    }
-  }
-
-  const handleAprobar = async (targetUserId, estado) => {
-    try {
-      await authApproveUser({ targetUserId, estado })
-      setAdminUsers((prev) =>
-        prev.map((u) => (u.id === targetUserId ? { ...u, estado } : u))
-      )
-    } catch (err) {
-      setErrorAdmin(err.message || 'Error al actualizar usuario')
-    }
-  }
 
   return (
     <>
@@ -55,7 +24,7 @@ export default function Header({
         <div className="flex items-center gap-2.5">
           <button
             type="button"
-            onClick={abrirPerfil}
+            onClick={() => setModalAbierto(true)}
             aria-label="Perfil y cuenta"
             className="w-8 h-8 rounded-full border border-[#1E2433] flex items-center justify-center text-[#1E2433] bg-white/50 hover:bg-white transition"
           >
@@ -120,7 +89,7 @@ export default function Header({
             </div>
 
             {rodilla && (
-              <div className="bg-[#F5F5F7] rounded-2xl p-3.5 mb-4 border border-[#E5E7EB]">
+              <div className="bg-[#F5F5F7] rounded-2xl p-3.5 mb-5 border border-[#E5E7EB]">
                 <span className="text-[11px] uppercase tracking-wider text-[#6B7280] font-medium block">
                   Parámetro actual de rodilla
                 </span>
@@ -130,64 +99,6 @@ export default function Header({
                 <p className="text-xs text-[#6B7280] mt-0.5">
                   Impacto máx. permitido: nivel {rodilla.impacto_max}
                 </p>
-              </div>
-            )}
-
-            {user?.rol === 'admin' && (
-              <div className="mb-5">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <UserCheck size={15} className="text-[#EE8641]" />
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#4B5563]">
-                    Gestión de cuentas (Admin)
-                  </h4>
-                </div>
-                {cargandoAdmin ? (
-                  <p className="text-xs text-[#6B7280] py-2">Cargando usuarios...</p>
-                ) : errorAdmin ? (
-                  <p className="text-xs text-red-600 py-1">{errorAdmin}</p>
-                ) : adminUsers.length === 0 ? (
-                  <p className="text-xs text-[#6B7280] py-1">No hay otras solicitudes registradas.</p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {adminUsers.map((u) => (
-                      <div
-                        key={u.id}
-                        className="flex items-center justify-between bg-[#F5F5F7] rounded-xl px-3 py-2 text-xs"
-                      >
-                        <div className="min-w-0 pr-2">
-                          <p className="font-medium text-[#1E2433] truncate">
-                            {u.nombre || u.email}
-                          </p>
-                          <p className="text-[11px] text-[#6B7280] truncate">
-                            {u.email} · <span className="uppercase">{u.estado}</span>
-                          </p>
-                        </div>
-                        {u.id !== user.id && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            {u.estado !== 'aprobado' && (
-                              <button
-                                type="button"
-                                onClick={() => handleAprobar(u.id, 'aprobado')}
-                                className="px-2.5 py-1 rounded-full bg-emerald-600 text-white font-medium inline-flex items-center gap-1"
-                              >
-                                <Check size={12} /> Aprobar
-                              </button>
-                            )}
-                            {u.estado !== 'rechazado' && (
-                              <button
-                                type="button"
-                                onClick={() => handleAprobar(u.id, 'rechazado')}
-                                className="px-2 py-1 rounded-full bg-gray-200 text-[#4B5563] font-medium"
-                              >
-                                Denegar
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
 
@@ -208,4 +119,3 @@ export default function Header({
     </>
   )
 }
-

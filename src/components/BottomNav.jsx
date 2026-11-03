@@ -1,40 +1,130 @@
-import React from 'react';
-import { Calendar, Dumbbell, Video, TrendingUp } from 'lucide-react';
-
-export default function BottomNav({ activeTab, setActiveTab, activeSessionRunning }) {
-  const tabs = [
-    { id: 'agenda', label: 'Agenda', icon: Calendar },
-    { id: 'hoy', label: 'Entrenar', icon: Dumbbell, highlight: activeSessionRunning },
-    { id: 'videos', label: 'Vídeos', icon: Video },
-    { id: 'evolucion', label: 'Evolución', icon: TrendingUp },
-  ];
-
+function HomeIcon({ active }) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800/80 px-2 py-1 max-w-md mx-auto">
-      <div className="flex justify-around items-center h-14">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+    <svg
+      width="23"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 10.5L12 3l9 7.5" />
+      <path d="M5.5 9.5V20h13V9.5" />
+      <path d="M9.5 20v-5.5h5V20" />
+    </svg>
+  )
+}
+
+function Agenda31Icon({ active }) {
+  return (
+    <svg
+      width="23"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="16" rx="2" />
+      <path d="M8 2.8v3.4M16 2.8v3.4M3.5 9h17" />
+      <text
+        x="12"
+        y="17.2"
+        textAnchor="middle"
+        fill="currentColor"
+        stroke="none"
+        fontSize="8.2"
+        fontWeight={active ? '700' : '600'}
+        fontFamily="Inter, system-ui, sans-serif"
+      >
+        31
+      </text>
+    </svg>
+  )
+}
+
+function VideosIcon({ active }) {
+  return (
+    <svg
+      width="24"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2.5" y="6" width="13.5" height="12" rx="2" />
+      <path d="M16 10.2l5-3v9.6l-5-3z" />
+    </svg>
+  )
+}
+
+function EvolucionIcon({ active }) {
+  return (
+    <svg
+      width="23"
+      height="23"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2 : 1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4v16h16" />
+      <path d="M7.5 15.5l4-4 3 2.5 5-5.5" />
+      <path d="M16 8.5h3.5V12" />
+    </svg>
+  )
+}
+
+const TABS = [
+  { id: 'home', label: 'Home', Icon: HomeIcon },
+  { id: 'agenda', label: 'Agenda', Icon: Agenda31Icon },
+  { id: 'videos', label: 'Vídeos', Icon: VideosIcon },
+  { id: 'evolucion', label: 'Evolución', Icon: EvolucionIcon },
+]
+
+export default function BottomNav({ activeTab, onSelectTab }) {
+  return (
+    <nav
+      aria-label="Navegación principal"
+      className="fixed bottom-0 left-0 right-0 z-30 bg-white/98 backdrop-blur-md border-t border-[#E6E8EE] pb-safe"
+    >
+      <div className="max-w-[440px] mx-auto flex items-center justify-around h-[58px] px-2">
+        {TABS.map(({ id, label, Icon }) => {
+          const active = activeTab === id
           return (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex flex-col items-center justify-center w-16 py-1 transition-all duration-200 ${
-                isActive ? 'text-amber-400 font-semibold scale-105' : 'text-slate-400 hover:text-slate-200'
+              key={id}
+              type="button"
+              onClick={() => onSelectTab(id)}
+              className={`flex flex-col items-center justify-center flex-1 py-1.5 transition-colors ${
+                active ? 'text-[#1E2433]' : 'text-[#6B7280] hover:text-[#1E2433]'
               }`}
             >
-              {tab.highlight && (
-                <span className="absolute -top-1 right-3 flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-                </span>
-              )}
-              <Icon size={22} strokeWidth={isActive ? 2.3 : 1.8} />
-              <span className="text-[10px] mt-1 tracking-tight">{tab.label}</span>
+              <Icon active={active} />
+              <span
+                className={`text-[10.5px] mt-1 tracking-tight leading-none ${
+                  active ? 'font-semibold text-[#1E2433]' : 'font-normal text-[#6B7280]'
+                }`}
+              >
+                {label}
+              </span>
             </button>
-          );
+          )
         })}
       </div>
     </nav>
-  );
+  )
 }

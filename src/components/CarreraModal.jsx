@@ -1,136 +1,310 @@
-import React, { useState } from 'react';
-import { X, Flame, Timer, Activity } from 'lucide-react';
+import { useMemo, useState } from 'react'
+import { ArrowLeft, Timer, Activity } from 'lucide-react'
+import {
+  parseDecimal,
+  parseEntero,
+  ritmoSegKm,
+  formatRitmo,
+} from '../../shared/numeros'
+import { hoyMadrid } from '../../shared/fechas'
 
-export default function CarreraModal({ onGuardar, onClose }) {
-  const [distanciaKm, setDistanciaKm] = useState('5.0');
-  const [minutos, setMinutos] = useState('23');
-  const [segundos, setSegundos] = useState('30');
-  const [tipo, setTipo] = useState('rodaje');
-  const [superficie, setSuperficie] = useState('pista');
-  const [molestiaRodilla, setMolestiaRodilla] = useState(1);
-  const [guardando, setGuardando] = useState(false);
+const TIPOS_CARRERA = [
+  { id: 'rodaje', label: 'Rodaje continuo' },
+  { id: 'series', label: 'Series en pista / Intervalos' },
+  { id: 'tempo', label: 'Tempo / Umbral' },
+  { id: 'fartlek', label: 'Fartlek / Cambios ritmo' },
+  { id: 'tirada_larga', label: 'Tirada larga' },
+  { id: 'tecnica', label: 'Técnica de carrera' },
+  { id: 'competicion', label: 'Competición / Test' },
+]
 
-  // Cálculo de ritmo en tiempo real: seg/km -> MM:SS
-  const totalSegundos = (parseInt(minutos, 10) || 0) * 60 + (parseInt(segundos, 10) || 0);
-  const dist = parseFloat(distanciaKm) || 0;
-  const ritmoSegKm = dist > 0 ? Math.round(totalSegundos / dist) : 0;
-  const ritmoMin = Math.floor(ritmoSegKm / 60);
-  const ritmoSeg = ritmoSegKm % 60;
-  const ritmoFormateado = dist > 0 ? `${ritmoMin}:${String(ritmoSeg).padStart(2, '0')} min/km` : '--:-- min/km';
+const SUPERFICIES = [
+  { id: 'asfalto', label: 'Asfalto' },
+  { id: 'pista', label: 'Pista atletismo' },
+  { id: 'tierra', label: 'Tierra / Parque' },
+  { id: 'cinta', label: 'Cinta' },
+]
+
+function parseDuracionFlexible(horasStr, minStr, segStr) {
+  const h = horasStr === '' ? 0 : parseEntero(horasStr)
+  const m = minStr === '' ? 0 : parseEntero(minStr)
+  const s = segStr === '' ? 0 : parseEntero(segStr)
+  if (h === null || m === null || s === null || s > 59 || (h > 0 && m > 59)) return null
+  const total = h * 3600 + m * 60 + s
+  return total > 0 ? total : null
+}
+
+function detectarZona(segKm, ritmosReferencia = []) {
+  if (!segKm || segKm <= 0) return null
+  // Ritmo base 10k o media maratón (por defecto 316 s/km = 5:16 HM, 230 s/km = 3:50 1k)
+  const r1k = ritmosReferencia.find((r) => r.distancia_m === 1000)?.ritmo_seg_km || 230
+  const r21k = ritmosReferencia.find((r) => r.distancia_m >= 21000)?.ritmo_seg_km || 316
+  if (segKm <= r1k + 25) return { zona: 'Z5 · VO2máx / Pista rápida', color: 'text-rose-600 bg-rose-50' }
+  if (segKm <= r21k - 12) return { zona: 'Z4 · Umbral 10K–15K', color: 'text-[#EE6B2F] bg-[#FEF0E6]' }
+  if (segKm <= r21k + 12) return { zona: 'Z3 · Ritmo Media Maratón / Tempo', color: 'text-amber-700 bg-amber-50' }
+  if (segKm <= r21k + 45) return { zona: 'Z2 · Rodaje aeróbico', color: 'text-emerald-700 bg-emerald-50' }
+  return { zona: 'Z1 · Regenerativo suave', color: 'text-sky-700 bg-sky-50' }
+}
+
+export default function CarreraModal({
+  fechaInicial,
+  sesionPlan = null,
+  ritmosReferencia = [],
+  onGuardar,
+  onClose,
+}) {
+  const [fecha, setFecha] = useState(sesionPlan?.fecha || fechaInicial || hoyMadrid())
+  const [tipo, setTipo] = useState(
+    sesionPlan?.titulo?.toLowerCase().includes('pista') ||
+      sesionPlan?.titulo?.toLowerCase().includes('series')
+      ? 'series'
+      : 'rodaje'
+  )
+  const [distanciaKm, setDistanciaKm] = useState('8,0')
+  const [horas, setHoras] = useState('')
+  const [minutos, setMinutos] = useState('42')
+  const [segundos, setSegundos] = useState('00')
+  const [superficie, setSuperficie] = useState(tipo === 'series' ? 'pista' : 'asfalto')
+  const [molestiaRodilla, setMolestiaRodilla] = useState(1)
+  const [seriesDetalle, setSeriesDetalle] = useState('')
+  const [nota, setNota] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+
+  const distanciaM = useMemo(() => {
+    const km = parseDecimal(distanciaKm)
+    return km && km > 0 ? Math.round(km * 1000) : null
+  }, [distanciaKm])
+
+  const duracionS = useMemo(
+    () => parseDuracionFlexible(horas, minutos, segundos),
+    [horas, minutos, segundos]
+  )
+
+  const segPorKm = useMemo(
+    () => (distanciaM && duracionS ? ritmoSegKm(distanciaM, duracionS) : null),
+    [distanciaM, duracionS]
+  )
+
+  const infoZona = useMemo(
+    () => detectarZona(segPorKm, ritmosReferencia),
+    [segPorKm, ritmosReferencia]
+  )
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!dist || totalSegundos <= 0) return;
-    setGuardando(true);
+    e.preventDefault()
+    if (!distanciaM || !duracionS) {
+      setError('Revisa la distancia (km) y el tiempo total de la sesión.')
+      return
+    }
+    setGuardando(true)
+    setError('')
     try {
       await onGuardar({
+        fecha,
         tipo,
-        distancia_m: Math.round(dist * 1000),
-        duracion_s: totalSegundos,
+        distancia_m: distanciaM,
+        duracion_s: duracionS,
         superficie,
         molestia_rodilla: molestiaRodilla,
-      });
-      onClose();
+        series_detalle: seriesDetalle.trim() || undefined,
+        nota: nota.trim() || undefined,
+        sesionPlanId: sesionPlan?.id || undefined,
+      })
+      onClose()
     } catch (err) {
-      console.error(err);
+      setError(err.message || 'No se pudo guardar la carrera')
     } finally {
-      setGuardando(false);
+      setGuardando(false)
     }
-  };
+  }
+
+  const molestiaBadge =
+    molestiaRodilla <= 2
+      ? 'text-emerald-700 bg-emerald-50'
+      : molestiaRodilla <= 4
+      ? 'text-amber-700 bg-amber-50'
+      : 'text-red-700 bg-red-50'
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-200">
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2 text-amber-400">
-            <Activity size={20} />
-            <h3 className="font-bold text-lg text-slate-100">Registrar Carrera / Pista</h3>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800">
-            <X size={20} />
+    <div className="fixed inset-0 z-50 bg-[#F5F5F7] overflow-y-auto">
+      <div className="max-w-[440px] mx-auto min-h-dvh flex flex-col harbiz-aura">
+        <header className="px-4 pt-safe h-14 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-[#1E2433] hover:bg-white/60 transition"
+            aria-label="Cerrar"
+          >
+            <ArrowLeft size={21} strokeWidth={1.6} />
           </button>
-        </div>
+          <span className="text-[11px] font-medium uppercase tracking-wider text-[#1E2433]/80">
+            Registro de carrera
+          </span>
+          <div className="w-9" />
+        </header>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col px-5 pt-1 pb-8 space-y-4">
+          <div>
+            <h2 className="text-[28px] font-light text-[#1E2433] leading-tight">
+              {sesionPlan ? sesionPlan.titulo : 'Registrar carrera'}
+            </h2>
+            <p className="text-xs text-[#6B7280] mt-1">
+              Calcula tu ritmo medio al instante y guarda la respuesta de la rodilla.
+            </p>
+          </div>
+
+          {/* Tarjeta ritmo calculado en vivo */}
+          <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs flex items-center justify-between">
+            <div>
+              <span className="text-[11px] font-medium text-[#6B7280] flex items-center gap-1.5">
+                <Timer size={14} className="text-[#EE8641]" />
+                Ritmo medio calculado
+              </span>
+              <p className="text-[26px] font-semibold text-[#1E2433] leading-tight mt-0.5">
+                {segPorKm ? formatRitmo(segPorKm) : '--:--'}{' '}
+                <span className="text-xs font-normal text-[#6B7280]">min/km</span>
+              </p>
+            </div>
+            {infoZona ? (
+              <span
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${infoZona.color}`}
+              >
+                {infoZona.zona}
+              </span>
+            ) : (
+              <Activity size={22} className="text-[#D1D5DB]" />
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Distancia (km)</label>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                Fecha
+              </label>
               <input
-                type="number"
-                step="0.01"
+                type="date"
                 required
-                value={distanciaKm}
-                onChange={(e) => setDistanciaKm(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 text-center font-mono text-xl focus:outline-none focus:border-amber-400"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 text-sm text-[#1E2433] focus:outline-none focus:border-[#242938]"
               />
             </div>
+
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Tiempo (min : seg)</label>
-              <div className="flex gap-1.5">
+              <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                Distancia (km)
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Ej. 10,5"
+                value={distanciaKm}
+                onChange={(e) => setDistanciaKm(e.target.value)}
+                className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 text-center text-base font-semibold text-[#1E2433] focus:outline-none focus:border-[#242938]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[#6B7280] mb-1">
+              Tiempo total (hh : mm : ss)
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="relative">
                 <input
-                  type="number"
-                  placeholder="Min"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={horas}
+                  onChange={(e) => setHoras(e.target.value)}
+                  className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 pr-7 text-center font-semibold text-[#1E2433] focus:outline-none focus:border-[#242938]"
+                />
+                <span className="absolute right-2.5 top-3 text-xs text-[#9CA3AF]">h</span>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="42"
                   value={minutos}
                   onChange={(e) => setMinutos(e.target.value)}
-                  className="w-1/2 bg-slate-800 border border-slate-700 rounded-xl px-2 py-2.5 text-slate-100 text-center font-mono text-lg focus:outline-none focus:border-amber-400"
+                  className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 pr-8 text-center font-semibold text-[#1E2433] focus:outline-none focus:border-[#242938]"
                 />
+                <span className="absolute right-2 top-3 text-xs text-[#9CA3AF]">min</span>
+              </div>
+              <div className="relative">
                 <input
-                  type="number"
-                  placeholder="Seg"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="00"
                   value={segundos}
                   onChange={(e) => setSegundos(e.target.value)}
-                  className="w-1/2 bg-slate-800 border border-slate-700 rounded-xl px-2 py-2.5 text-slate-100 text-center font-mono text-lg focus:outline-none focus:border-amber-400"
+                  className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 pr-7 text-center font-semibold text-[#1E2433] focus:outline-none focus:border-[#242938]"
                 />
+                <span className="absolute right-2.5 top-3 text-xs text-[#9CA3AF]">s</span>
               </div>
             </div>
           </div>
 
-          {/* Ritmo calculado automáticamente */}
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex justify-between items-center">
-            <span className="text-xs text-amber-300 flex items-center gap-1.5 font-medium">
-              <Timer size={14} /> Ritmo medio calculado:
-            </span>
-            <span className="font-mono font-bold text-amber-400 text-lg">{ritmoFormateado}</span>
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Tipo de sesión</label>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                Tipo de sesión
+              </label>
               <select
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400"
+                className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 text-xs font-medium text-[#1E2433] focus:outline-none focus:border-[#242938]"
               >
-                <option value="rodaje">Rodaje suave</option>
-                <option value="series">Series / Intervalos</option>
-                <option value="tempo">Tempo / Ritmo sostenido</option>
-                <option value="fartlek">Fartlek</option>
-                <option value="tirada_larga">Tirada larga</option>
+                {TIPOS_CARRERA.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </div>
+
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Superficie</label>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                Superficie
+              </label>
               <select
                 value={superficie}
                 onChange={(e) => setSuperficie(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400"
+                className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3 text-xs font-medium text-[#1E2433] focus:outline-none focus:border-[#242938]"
               >
-                <option value="pista">Pista de atletismo</option>
-                <option value="asfalto">Asfalto</option>
-                <option value="tierra">Tierra / Parque</option>
-                <option value="cinta">Cinta de correr</option>
+                {SUPERFICIES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
-          {/* Control clínico rodilla durante/después carrera */}
-          <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800">
-            <div className="flex justify-between items-center mb-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1">
-                <Flame size={13} className={molestiaRodilla > 3 ? "text-red-400" : "text-emerald-400"} />
-                Sensación / Molestia en rodilla (0-10)
+          {(tipo === 'series' || tipo === 'fartlek' || tipo === 'tempo') && (
+            <div>
+              <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                Detalle de intervalos / parciales (opcional)
               </label>
-              <span className={`font-mono font-bold text-sm ${molestiaRodilla > 3 ? "text-red-400" : "text-emerald-400"}`}>
+              <input
+                type="text"
+                placeholder="Ej. 6x1000m rec 90s a 3:55/km"
+                value={seriesDetalle}
+                onChange={(e) => setSeriesDetalle(e.target.value)}
+                className="w-full h-11 bg-white border border-[#E5E7EB] rounded-xl px-3.5 text-sm text-[#1E2433] focus:outline-none focus:border-[#242938]"
+              />
+            </div>
+          )}
+
+          {/* Control rodilla 0-10 */}
+          <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2]">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-[#1E2433]">
+                Sensación / molestia en rodilla
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${molestiaBadge}`}>
                 {molestiaRodilla} / 10
               </span>
             </div>
@@ -139,25 +313,46 @@ export default function CarreraModal({ onGuardar, onClose }) {
               min="0"
               max="10"
               value={molestiaRodilla}
-              onChange={(e) => setMolestiaRodilla(parseInt(e.target.value, 10))}
-              className="w-full accent-amber-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+              onChange={(e) => setMolestiaRodilla(Number(e.target.value))}
+              className="w-full harbiz-range"
             />
-            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-              <span>0 (Perfecta)</span>
-              <span>2 (Aceptable)</span>
-              <span>5+ (Alerta)</span>
+            <div className="flex justify-between text-[10px] text-[#9CA3AF] mt-1.5">
+              <span>0 · Estable</span>
+              <span>2 · Tolerable</span>
+              <span>5+ · Reducir impacto</span>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={guardando}
-            className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition"
-          >
-            {guardando ? 'Guardando...' : 'Guardar Carrera'}
-          </button>
+          <div>
+            <label className="block text-xs font-medium text-[#6B7280] mb-1">
+              Notas (zapatillas, sensaciones, pulso...)
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Opcional..."
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+              className="w-full bg-white border border-[#E5E7EB] rounded-xl p-3 text-sm text-[#1E2433] focus:outline-none focus:border-[#242938]"
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">
+              {error}
+            </p>
+          )}
+
+          <div className="pt-2 mt-auto">
+            <button
+              type="submit"
+              disabled={guardando}
+              className="w-full h-12 rounded-full bg-[#242938] text-white text-sm font-semibold shadow-md hover:opacity-95 transition disabled:opacity-50"
+            >
+              {guardando ? 'Guardando carrera...' : 'Guardar carrera'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
-  );
+  )
 }

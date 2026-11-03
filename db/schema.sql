@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS ejercicios (
   equipamiento      TEXT,
   instrucciones     TEXT,
   video_url         TEXT,
+  poster_url        TEXT,
   video_origen      TEXT NOT NULL DEFAULT 'ninguno' CHECK (video_origen IN ('youtube','propio','otro','ninguno')),
   video_validado    INTEGER NOT NULL DEFAULT 0 CHECK (video_validado IN (0,1)),
   activo            INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0,1)),
@@ -243,6 +244,7 @@ CREATE TABLE IF NOT EXISTS carreras (
   ritmo_seg_km      INTEGER GENERATED ALWAYS AS (duracion_s * 1000 / distancia_m) VIRTUAL,
   superficie        TEXT CHECK (superficie IS NULL OR superficie IN ('pista','asfalto','tierra','cinta')),
   molestia_rodilla  INTEGER CHECK (molestia_rodilla IS NULL OR molestia_rodilla BETWEEN 0 AND 10),
+  series_detalle    TEXT,
   nota              TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_carreras_entreno ON carreras(entreno_id);
@@ -256,4 +258,4 @@ CREATE TABLE IF NOT EXISTS peso_corporal (
   UNIQUE (user_id, fecha)
 );
 
-INSERT OR REPLACE INTO meta (clave, valor) VALUES ('schema_version', '1');
+INSERT OR REPLACE INTO meta (clave, valor) VALUES ('schema_version', '2');

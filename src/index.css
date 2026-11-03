@@ -1,24 +1,108 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --canvas: #f5f5f7;
+    --surface: #ffffff;
+    --ink: #1e2433;
+    --muted: #6b7280;
+    --charcoal: #242938;
+    --peach: #ee8641;
+    --line: #e5e7eb;
+  }
+
+  html,
   body {
-    background-color: #090d16;
-    color: #f8fafc;
+    background-color: #f5f5f7;
+    color: #1e2433;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
-    user-select: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overscroll-behavior-y: none;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
   }
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+/* Signature Harbiz warm peach/amber header glow */
+.harbiz-aura {
+  background-image: radial-gradient(
+    ellipse 85% 58% at 52% 8%,
+    rgba(244, 152, 92, 0.5),
+    rgba(252, 211, 173, 0.26) 55%,
+    rgba(245, 245, 247, 0) 82%
+  );
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+
+/* Golden-amber header glow for Session Preview (matches f_007 / sheet_3) */
+.harbiz-aura-gold {
+  background-image: radial-gradient(
+    ellipse 88% 54% at 54% 9%,
+    rgba(244, 188, 82, 0.48),
+    rgba(253, 224, 158, 0.25) 55%,
+    rgba(245, 245, 247, 0) 82%
+  );
 }
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+
+/* Soft sky-blue header glow for Metrics sheet (matches sheet_3 Registrar métricas) */
+.harbiz-aura-sky {
+  background-image: radial-gradient(
+    ellipse 85% 50% at 52% 6%,
+    rgba(115, 206, 250, 0.46),
+    rgba(186, 230, 253, 0.22) 55%,
+    rgba(245, 245, 247, 0) 80%
+  );
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+/* Clean custom range slider for 0-10 knee feedback */
+input[type="range"].harbiz-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  outline: none;
+}
+
+input[type="range"].harbiz-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #242938;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(30, 36, 51, 0.25);
+  cursor: pointer;
+}
+
+input[type="range"].harbiz-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #242938;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(30, 36, 51, 0.25);
+  cursor: pointer;
 }

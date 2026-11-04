@@ -1,11 +1,11 @@
 /**
  * Endpoint /api/semana
  * GET  ?lunes=YYYY-MM-DD -> semana + sesiones planificadas
- * POST -> action: 'generar' | 'mover_sesion' | 'estado_sesion'
+ * POST -> action: 'generar' | 'mover_sesion' | 'reorganizar_semana' | 'estado_sesion'
  */
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, readJson, sendJson, withErrorHandling } from './_lib/http.js'
-import { execute } from './_lib/turso.js'
+import { batch, execute } from './_lib/turso.js'
 import { cargarSesionesSemana, generarSemanaPlan } from './_lib/planner-db.js'
 import { esISO, hoyMadrid, lunesDe } from '../shared/fechas.js'
 
@@ -69,6 +69,31 @@ export default withErrorHandling(async function semanaHandler(req, res) {
       return sendJson(res, 404, { error: 'Sesión planificada no encontrada.' })
     }
     return sendJson(res, 200, { ok: true })
+  }
+
+  if (action === 'reorganizar_semana') {
+    const cambios = Array.isArray(body.cambios) ? body.cambios : []
+    if (cambios.length === 0) {
+      return sendJson(res, 400, { error: 'No se enviaron cambios para reorganizar la semana.' })
+    }
+
+    const stmts = []
+    for (const c of cambios) {
+      const sesionId = Number(c.sesionId)
+      const nuevaFecha = String(c.nuevaFecha || '').trim()
+      if (!Number.isInteger(sesionId) || sesionId <= 0 || !esISO(nuevaFecha)) {
+        return sendJson(res, 400, { error: 'Datos de sesión o fecha inválidos en la reorganización.' })
+      }
+      stmts.push({
+        sql: 'UPDATE sesiones_plan SET fecha = ? WHERE id = ? AND user_id = ?',
+        args: [nuevaFecha, sesionId, user.id],
+      })
+    }
+
+    await batch(stmts)
+    const baseIso = esISO(body.lunes) ? body.lunes : hoyMadrid()
+    const data = await cargarSesionesSemana(user.id, lunesDe(baseIso))
+    return sendJson(res, 200, { ok: true, ...data })
   }
 
   if (action === 'estado_sesion') {

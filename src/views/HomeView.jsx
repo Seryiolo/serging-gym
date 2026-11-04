@@ -39,10 +39,15 @@ export default function HomeView({
   resumenSemana,
   videosDestacados = [],
   entrenosPendientesHinchazon = [],
+  entrenoActivo = null,
+  onReanudarWorkout,
+  onDiscardWorkout,
   onOpenSessionPreview,
   onOpenPesoModal,
   onOpenCarreraModal,
   onOpenGenerarSemana,
+  onOpenReorganizarSemana,
+  onIrAgendaFecha,
   onGoToVideos,
   onGoToRodilla,
   onOpenVideo,
@@ -59,9 +64,13 @@ export default function HomeView({
     (s) => s.fecha >= lunesActual && s.fecha <= domingoActual
   )
   const sesionesHoy = sesionesMes.filter((s) => s.fecha === hoy)
-  const proximaSesionSemana = sesionesSemanaActual.find(
-    (s) => s.fecha > hoy && s.estado === 'pendiente'
-  )
+  const proximaSesionSemana =
+    sesionesSemanaActual.find(
+      (s) => s.fecha > hoy && s.estado === 'pendiente'
+    ) ||
+    sesionesMes
+      .filter((s) => s.fecha >= hoy && s.estado === 'pendiente')
+      .sort((a, b) => a.fecha.localeCompare(b.fecha))[0]
 
   const objetivosFuturos = objetivos
     .map((o) => ({ ...o, faltanDias: diasEntre(hoy, o.fecha) }))
@@ -72,7 +81,7 @@ export default function HomeView({
   const pendienteHinchazon = entrenosPendientesHinchazon[0] || null
 
   return (
-    <div className="px-4 pb-28 pt-1 space-y-6">
+    <div className="px-4 pb-28 pt-1 space-y-5">
       {/* Saludo principal estilo Harbiz (sheet_1.jpg) */}
       <section className="pt-1">
         <p className="text-[13px] text-[#4B5563] font-normal">
@@ -81,6 +90,101 @@ export default function HomeView({
         <h1 className="text-[31px] font-light tracking-tight text-[#1E2433] leading-[1.15] mt-0.5">
           Plan de hoy
         </h1>
+      </section>
+
+      {/* Banner de sesión en curso o pausada */}
+      {entrenoActivo && (
+        <section className="bg-[#242938] text-white rounded-2xl p-4 shadow-md space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  entrenoActivo.enPausa ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'
+                }`}
+              />
+              <span className="text-xs font-semibold text-white/80 uppercase tracking-wider">
+                {entrenoActivo.enPausa ? 'Entrenamiento en pausa' : 'Entrenamiento en curso'}
+              </span>
+            </div>
+            {entrenoActivo.enPausa && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-semibold">
+                Guardado
+              </span>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-base font-semibold text-white">
+              {entrenoActivo.sesion?.titulo || 'Sesión'}
+            </h3>
+            <p className="text-xs text-white/70 mt-0.5">
+              Tus marcas y series introducidas se conservan intactas. Puedes reanudarla cuando quieras o descartarla.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onReanudarWorkout}
+              className="h-10 rounded-full bg-[#EE8641] text-white text-xs font-semibold flex items-center justify-center gap-1.5 hover:opacity-95 transition"
+            >
+              <Play size={14} className="fill-white" />
+              Reanudar sesión
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    '¿Descartar este entrenamiento? No se guardará nada y NO contará para la progresión de 6 sesiones de tu rodilla.'
+                  )
+                ) {
+                  onDiscardWorkout()
+                }
+              }}
+              className="h-10 rounded-full bg-white/10 text-white/80 hover:text-red-300 text-xs font-semibold transition"
+            >
+              Descartar borrador
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Banner de inicio oficial del plan: 16 de noviembre de 2026 */}
+      <section className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-4 shadow-2xs space-y-3">
+        <div className="flex items-start gap-2.5">
+          <span className="w-8 h-8 rounded-full bg-[#EE8641] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+            <Calendar size={17} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#EE6B2F]">
+              Inicio de entrenamiento
+            </span>
+            <h2 className="text-[14.5px] font-semibold text-[#1E2433] leading-snug mt-0.5">
+              El plan comienza el lunes 16 de noviembre de 2026
+            </h2>
+            <p className="text-xs text-[#6B7280] leading-relaxed mt-1">
+              Tu semana de adaptación de rodilla (fuerza unilateral, torso y carrera de calidad) está lista a partir del 16 de noviembre. Puedes consultar el horario y reorganizar los días como mejor te convenga.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => onIrAgendaFecha?.('2026-11-16')}
+            className="flex-1 h-9 rounded-full bg-[#242938] text-white text-xs font-semibold flex items-center justify-center gap-1 hover:opacity-95 transition"
+          >
+            Ver semana del 16 nov
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenReorganizarSemana?.('2026-11-16')}
+            className="h-9 px-3.5 rounded-full bg-white border border-[#D1D5DB] text-[#1E2433] text-xs font-semibold hover:bg-[#F5F5F7] transition"
+          >
+            Reorganizar
+          </button>
+        </div>
       </section>
 
       {/* Aviso 24h de control de hinchazón post-entreno si hay sesión reciente pendiente */}
@@ -286,13 +390,23 @@ export default function HomeView({
           <h2 className="text-[23px] font-light text-[#1E2433] tracking-tight">
             Resumen semanal
           </h2>
-          <button
-            type="button"
-            onClick={onGoToRodilla}
-            className="text-xs text-[#6B7280] hover:text-[#1E2433]"
-          >
-            Detalles
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenReorganizarSemana?.(lunesActual)}
+              className="text-xs font-semibold text-[#EE6B2F] hover:underline"
+            >
+              Reorganizar
+            </button>
+            <span className="text-[#CFD3DC]">·</span>
+            <button
+              type="button"
+              onClick={onGoToRodilla}
+              className="text-xs text-[#6B7280] hover:text-[#1E2433]"
+            >
+              Detalles
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-4">

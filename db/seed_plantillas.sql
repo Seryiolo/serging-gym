@@ -86,9 +86,9 @@ VALUES
 (210, 23, 4, 'ancla', 66, NULL, NULL, NULL, 'nunca', NULL, 3, '10-12', 8.0, 60, 'Fuerza de gemelo y Aquiles en déficit'),
 
 -- --- 3. CARRERA PISTA ---
-(301, 30, 1, 'ancla', 55, NULL, NULL, NULL, 'nunca', 1, 3, '40 metros', NULL, 45, 'Skipping y zarpazo reactivo en recta'),
-(302, 30, 2, 'variable', 101, 'carrera', 'tecnica_carrera', 'carrera', 'semanal', 1, 2, '30 metros', NULL, 45, 'Drill coordinativo de tobillo y postura alta'),
-(303, 31, 1, 'variable', 51, 'carrera', NULL, 'carrera', 'semanal', NULL, 5, '1000m @ Z4-Z5', 8.5, 105, 'Intervalos principales según objetivo (5k / 10k / 15k)'),
+(301, 30, 1, 'ancla', 55, NULL, NULL, NULL, 'nunca', 1, 3, '40 metros', NULL, 45, 'Skipping y zarpazo reactivo en recta · 45s de descanso caminando'),
+(302, 30, 2, 'variable', 101, 'carrera', 'tecnica_carrera', 'carrera', 'semanal', 1, 2, '30 metros', NULL, 45, 'Drill coordinativo de tobillo y postura alta · 45s de descanso caminando'),
+(303, 31, 1, 'variable', 51, 'carrera', NULL, 'carrera', 'semanal', NULL, 5, '1000m @ Z4-Z5', 8.5, 120, 'Series de 1000m en Z5 con 2 min de recuperación al trote suave o caminando entre repeticiones'),
 (304, 32, 1, 'ancla', 50, NULL, NULL, NULL, 'nunca', NULL, 1, '10-12 min Z1', 5.0, 0, 'Trote suave regenerativo para soltar piernas'),
 
 -- --- 4. TORSO B ---

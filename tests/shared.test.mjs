@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  parseDecimal, parseEntero, ritmoSegKm, formatRitmo, formatDuracion,
+  parseDecimal, parseEntero, ritmoSegKm, formatRitmo, formatDuracion, formatDescanso,
   tiempoASegundos, estimar1RM, tablaPorcentajes,
 } from '../shared/numeros.js'
 import {
@@ -51,6 +51,30 @@ test('formatDuracion', () => {
   assert.equal(formatDuracion(125), '2:05')
   assert.equal(formatDuracion(3725), '1:02:05')
   assert.equal(formatDuracion(-1), '--:--')
+})
+
+test('formatDescanso formatea segundos y minutos', () => {
+  assert.equal(formatDescanso(1), '1s')
+  assert.equal(formatDescanso(30), '30s')
+  assert.equal(formatDescanso(45), '45s')
+  assert.equal(formatDescanso(59), '59s')
+  assert.equal(formatDescanso(60), '1 min')
+  assert.equal(formatDescanso(65), '1:05 min')
+  assert.equal(formatDescanso(90), '1:30 min')
+  assert.equal(formatDescanso(105), '1:45 min')
+  assert.equal(formatDescanso(120), '2 min')
+  assert.equal(formatDescanso(180), '3 min')
+  assert.equal(formatDescanso(0), null)
+  assert.equal(formatDescanso(-10), null)
+  assert.equal(formatDescanso(null), null)
+  assert.equal(formatDescanso(undefined), null)
+})
+
+test('inicio de entrenamiento 16 de noviembre de 2026 es lunes', () => {
+  assert.equal(lunesDe('2026-11-16'), '2026-11-16')
+  assert.equal(diaSemana('2026-11-16'), 0) // Lunes
+  assert.equal(diasDeSemana('2026-11-16')[0], '2026-11-16')
+  assert.equal(diasDeSemana('2026-11-16')[6], '2026-11-22')
 })
 
 test('tiempoASegundos valida segundos y vacios', () => {
@@ -159,6 +183,21 @@ test('rodilla: molestia creciente 3 sesiones seguidas -> vigilar', () => {
 test('rodilla: en la ultima fase no sugiere subir', () => {
   const r = evaluarProgresion({ ...fase1, id: 4 }, Array(6).fill(buena), 4)
   assert.equal(r.accion, 'mantener')
+})
+
+test('rodilla: sesion descartada no cuenta para la progresion de 6 sesiones', () => {
+  const cincoBuenas = Array(5).fill(buena)
+  assert.equal(evaluarProgresion(fase1, cincoBuenas).progreso, 5)
+  assert.equal(evaluarProgresion(fase1, cincoBuenas).accion, 'mantener')
+
+  // Si entra una mala, rompe la racha
+  const conMala = [{ molestia_durante: 4, molestia_despues: 4, hinchazon: 1 }, ...cincoBuenas]
+  assert.equal(evaluarProgresion(fase1, conMala).accion, 'bajar')
+
+  // Al descartarla/eliminarla de la base de datos, la racha vuelve a 5 buenas intactas
+  const descartada = conMala.slice(1)
+  assert.equal(evaluarProgresion(fase1, descartada).progreso, 5)
+  assert.equal(evaluarProgresion(fase1, descartada).accion, 'mantener')
 })
 
 // ------------------------------------------------------------------- planner

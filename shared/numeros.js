@@ -73,3 +73,14 @@ export function tablaPorcentajes(rm, porcentajes = [100, 95, 90, 85, 80, 75, 70,
 export function redondearA(valor, paso = 0.5) {
   return Math.round(valor / paso) * paso
 }
+
+/** Formatea descanso en segundos a texto legible: 45 -> "45s", 120 -> "2 min", 105 -> "1:45 min" */
+export function formatDescanso(segundos) {
+  if (!Number.isFinite(segundos) || segundos <= 0) return null
+  const s = Math.round(segundos)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const resto = s % 60
+  if (resto === 0) return `${m} min`
+  return `${m}:${String(resto).padStart(2, '0')} min`
+}

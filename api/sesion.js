@@ -72,7 +72,7 @@ export default withErrorHandling(async function sesionHandler(req, res) {
       return sendJson(res, 400, { error: 'ID de sesión no válido.' })
     }
 
-    const [sesionRows, itemsRows, marcasRows] = await readBatch([
+    const [sesionRows, itemsRows, marcasRows, entrenoRows] = await readBatch([
       {
         sql: `SELECT id, fecha, tipo, titulo, descripcion, estado, plantilla_id
               FROM sesiones_plan
@@ -136,6 +136,18 @@ export default withErrorHandling(async function sesionHandler(req, res) {
                 COALESCE(sr.reps, 0) DESC`,
         args: [user.id, sesionId],
       },
+      {
+        sql: `SELECT id, sesion_plan_id, inicio, fin,
+                     molestia_rodilla_durante AS molestia_durante,
+                     molestia_rodilla_despues AS molestia_despues,
+                     hinchazon_dia_siguiente AS hinchazon,
+                     nota
+              FROM entrenos
+              WHERE sesion_plan_id = ? AND user_id = ?
+              ORDER BY inicio DESC, id DESC
+              LIMIT 1`,
+        args: [sesionId, user.id],
+      },
     ])
 
     const sesion = sesionRows[0]
@@ -194,8 +206,9 @@ export default withErrorHandling(async function sesionHandler(req, res) {
       })
     }
 
+    const entreno = entrenoRows[0] ?? null
     const bloques = Array.from(bloquesMap.values()).sort((a, b) => a.orden - b.orden)
-    return sendJson(res, 200, { sesion, bloques })
+    return sendJson(res, 200, { sesion, bloques, entreno })
   }
 
   if (req.method !== 'POST') {
@@ -410,6 +423,72 @@ export default withErrorHandling(async function sesionHandler(req, res) {
 
     const rodilla = await evaluarRodillaUsuario(user.id)
     return sendJson(res, 200, { ok: true, evaluacionRodilla: rodilla.evaluacion, rodilla })
+  }
+
+  if (action === 'eliminar_entreno') {
+    let entrenoId = Number(body.entrenoId)
+    let sesionPlanId = Number(body.sesionPlanId)
+    if (!Number.isInteger(entrenoId) || entrenoId <= 0) {
+      entrenoId = null
+    }
+    if (!Number.isInteger(sesionPlanId) || sesionPlanId <= 0) {
+      sesionPlanId = null
+    }
+
+    if (!entrenoId && !sesionPlanId) {
+      return sendJson(res, 400, { error: 'Se requiere ID de entrenamiento o de sesión planificada.' })
+    }
+
+    let entreno = null
+    if (entrenoId) {
+      entreno = await queryOne(
+        'SELECT id, sesion_plan_id FROM entrenos WHERE id = ? AND user_id = ? LIMIT 1',
+        [entrenoId, user.id],
+      )
+    } else if (sesionPlanId) {
+      entreno = await queryOne(
+        'SELECT id, sesion_plan_id FROM entrenos WHERE sesion_plan_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1',
+        [sesionPlanId, user.id],
+      )
+    }
+
+    const stmts = []
+    if (entreno) {
+      stmts.push(
+        {
+          sql: 'DELETE FROM series_registradas WHERE entreno_id = ?',
+          args: [entreno.id],
+        },
+        {
+          sql: 'DELETE FROM carreras WHERE entreno_id = ?',
+          args: [entreno.id],
+        },
+        {
+          sql: 'DELETE FROM entrenos WHERE id = ? AND user_id = ?',
+          args: [entreno.id, user.id],
+        },
+      )
+    }
+
+    const targetSesionPlanId = entreno?.sesion_plan_id || sesionPlanId
+    if (targetSesionPlanId) {
+      stmts.push({
+        sql: "UPDATE sesiones_plan SET estado = 'pendiente' WHERE id = ? AND user_id = ?",
+        args: [targetSesionPlanId, user.id],
+      })
+    }
+
+    if (stmts.length > 0) {
+      await batch(stmts)
+    }
+
+    const rodilla = await evaluarRodillaUsuario(user.id)
+    return sendJson(res, 200, {
+      ok: true,
+      mensaje: 'Entrenamiento descartado/eliminado correctamente.',
+      evaluacionRodilla: rodilla.evaluacion,
+      rodilla,
+    })
   }
 
   return sendJson(res, 400, { error: `Acción no reconocida en /api/sesion: ${action}` })

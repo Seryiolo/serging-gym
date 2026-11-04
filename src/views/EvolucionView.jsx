@@ -11,6 +11,9 @@ import {
   CheckCircle2,
   Scale,
   Edit3,
+  TrendingUp,
+  Zap,
+  Activity,
 } from 'lucide-react'
 import { diasEntre, formatCorto, nombreMes } from '../../shared/fechas'
 import { formatDuracion, formatRitmo, parseEntero } from '../../shared/numeros'
@@ -75,6 +78,7 @@ export default function EvolucionView({
   onEliminarObjetivo,
   onActualizarRitmo,
   onEliminarCarrera,
+  onEliminarEntreno,
 }) {
   const [subTab, setSubTab] = useState(initialSubTab)
   const [prevInitial, setPrevInitial] = useState(initialSubTab)
@@ -105,6 +109,7 @@ export default function EvolucionView({
   const [guardandoRitmos, setGuardandoRitmos] = useState(false)
 
   // --- Estado Logros ---
+  const [subTabLogros, setSubTabLogros] = useState('insignias') // 'insignias' | 'prs'
   const [acordeonLogros, setAcordeonLogros] = useState({
     rodilla: true,
     constancia: true,
@@ -116,6 +121,7 @@ export default function EvolucionView({
   const rodilla = evolucion?.rodilla || null
   const pendientesHinchazon = evolucion?.entrenosPendientesHinchazon || []
   const logros = evolucion?.logros || { insignias: [] }
+  const mejoresMarcas = evolucion?.mejoresMarcas || null
 
   const carreras = carrerasData?.carreras || evolucion?.carrerasResumen?.historial || []
   const ritmosReferencia = useMemo(() => carrerasData?.ritmosReferencia || [], [carrerasData])
@@ -714,6 +720,25 @@ export default function EvolucionView({
                             Hinchazón
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `¿Descartar este entrenamiento registrado (${e.titulo} del ${formatCorto(
+                                  e.fecha
+                                )})? Se eliminarán sus marcas y NO contará para la progresión de 6 sesiones de tu rodilla.`
+                              )
+                            ) {
+                              onEliminarEntreno?.(e.id)
+                            }
+                          }}
+                          className="p-1 rounded-full text-[#9CA3AF] hover:text-red-600 hover:bg-red-50 transition"
+                          title="Descartar este entrenamiento registrado (no contará para rodilla)"
+                          aria-label="Descartar entrenamiento"
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </div>
                   )
@@ -1059,114 +1084,275 @@ export default function EvolucionView({
             </div>
           </div>
 
-          {/* Acordeón de Insignias estilo Harbiz (sheet_4.jpg abajo-derecha) */}
-          {[
-            {
-              key: 'rodilla',
-              titulo: 'Salud y Reatletización de Rodilla',
-              filtro: (ins) =>
-                ins.id.includes('rodilla') || ins.id.includes('fase'),
-            },
-            {
-              key: 'constancia',
-              titulo: 'Constancia de Entrenamiento',
-              filtro: (ins) =>
-                ins.id.includes('entreno') || ins.id.includes('constancia'),
-            },
-            {
-              key: 'carrera',
-              titulo: 'Carrera y Base Aeróbica',
-              filtro: (ins) => ins.id.includes('corredor'),
-            },
-            {
-              key: 'fuerza',
-              titulo: 'Fuerza y Sobrecarga Progresiva',
-              filtro: (ins) => ins.id.includes('fuerza'),
-            },
-          ].map((grupo) => {
-            const items = (logros.insignias || []).filter(grupo.filtro)
-            const abierto = acordeonLogros[grupo.key]
-            return (
-              <div
-                key={grupo.key}
-                className="bg-white rounded-2xl border border-[#ECEEF2] shadow-2xs overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAcordeonLogros((prev) => ({
-                      ...prev,
-                      [grupo.key]: !abierto,
-                    }))
-                  }
-                  className="w-full px-4 py-3.5 flex items-center justify-between text-left"
-                >
-                  <span className="text-[14px] font-medium text-[#1E2433]">
-                    {grupo.titulo}
-                  </span>
-                  {abierto ? (
-                    <ChevronUp size={17} className="text-[#6B7280]" />
-                  ) : (
-                    <ChevronDown size={17} className="text-[#6B7280]" />
-                  )}
-                </button>
+          {/* Selector de sub-pestaña de Logros: Insignias vs PRs */}
+          <div className="flex bg-[#E5E7EB]/70 p-1 rounded-2xl">
+            <button
+              type="button"
+              onClick={() => setSubTabLogros('insignias')}
+              className={`flex-1 h-9 rounded-xl text-xs font-semibold transition ${
+                subTabLogros === 'insignias'
+                  ? 'bg-white text-[#1E2433] shadow-xs'
+                  : 'text-[#6B7280] hover:text-[#1E2433]'
+              }`}
+            >
+              Insignias y Retos ({(logros?.insignias || []).length || 26})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTabLogros('prs')}
+              className={`flex-1 h-9 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                subTabLogros === 'prs'
+                  ? 'bg-white text-[#1E2433] shadow-xs'
+                  : 'text-[#6B7280] hover:text-[#1E2433]'
+              }`}
+            >
+              <TrendingUp size={13} />
+              Récords y Marcas (PRs)
+            </button>
+          </div>
 
-                {abierto && (
-                  <div className="px-4 pb-4 pt-1 space-y-3 border-t border-[#F1F3F6]">
-                    {items.map((ins) => {
-                      const pct =
-                        ins.objetivo > 0
-                          ? Math.min(
-                              100,
-                              Math.round(((ins.progreso || 0) / ins.objetivo) * 100)
-                            )
-                          : 0
-                      return (
-                        <div key={ins.id} className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                                  ins.conseguido
-                                    ? 'bg-[#FEF0E6] text-[#EE6B2F]'
-                                    : 'bg-[#F5F5F7] text-[#9CA3AF]'
-                                }`}
-                              >
-                                {ins.conseguido ? (
-                                  <CheckCircle2 size={16} />
-                                ) : (
-                                  <Award size={16} />
-                                )}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-medium text-[#1E2433] truncate">
-                                  {ins.titulo}
-                                </p>
-                                <p className="text-[11px] text-[#6B7280]">
-                                  {ins.descripcion}
-                                </p>
-                              </div>
-                            </div>
-                            <span className="text-xs font-semibold text-[#4B5563] tabular-nums shrink-0">
-                              {ins.progreso}/{ins.objetivo}
-                            </span>
-                          </div>
-                          <div className="h-1.5 w-full bg-[#F0F2F5] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                ins.conseguido ? 'bg-emerald-500' : 'bg-[#EE8641]'
-                              }`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      )
-                    })}
+          {subTabLogros === 'prs' ? (
+            <div className="space-y-4">
+              {/* Card Récords de Fuerza */}
+              <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-full bg-[#FEF0E6] text-[#EE6B2F] flex items-center justify-center shrink-0">
+                      <Zap size={16} />
+                    </span>
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-[#1E2433]">
+                        Récords de Fuerza
+                      </h3>
+                      <p className="text-[11px] text-[#6B7280]">
+                        Máximo peso levantado por ejercicio y 1RM estimado
+                      </p>
+                    </div>
                   </div>
+                  {mejoresMarcas?.maxPesoGlobal > 0 && (
+                    <span className="px-2.5 py-1 rounded-full bg-[#242938] text-white text-[11px] font-semibold tabular-nums shrink-0">
+                      Máx: {mejoresMarcas.maxPesoGlobal} kg
+                    </span>
+                  )}
+                </div>
+
+                {mejoresMarcas?.fuerza?.length > 0 ? (
+                  <div className="divide-y divide-[#F1F3F6]">
+                    {mejoresMarcas.fuerza.map((pr) => (
+                      <div
+                        key={pr.ejercicio_id || pr.nombre}
+                        className="py-2.5 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#1E2433] truncate">
+                            {pr.nombre}
+                          </p>
+                          <p className="text-[11px] text-[#6B7280]">
+                            {pr.fecha ? formatCorto(pr.fecha) : ''}
+                            {(pr.rm1_estimado || pr.estimado_1rm)
+                              ? ` · 1RM est: ${pr.rm1_estimado || pr.estimado_1rm} kg`
+                              : ''}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[14px] font-bold text-[#EE6B2F] tabular-nums">
+                            {pr.max_peso_kg ?? pr.peso_kg} kg
+                          </span>
+                          <span className="text-[11px] text-[#4B5563] ml-1">
+                            × {pr.reps} reps
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#6B7280] py-2">
+                    Aún no hay registros de fuerza con peso. Al guardar tus entrenamientos se computarán automáticamente aquí tus PRs.
+                  </p>
                 )}
               </div>
-            )
-          })}
+
+              {/* Card Récords de Carrera */}
+              <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-full bg-[#E0F2FE] text-[#0284C7] flex items-center justify-center shrink-0">
+                      <Activity size={16} />
+                    </span>
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-[#1E2433]">
+                        Mejores Marcas de Carrera
+                      </h3>
+                      <p className="text-[11px] text-[#6B7280]">
+                        Tiempos y ritmos de referencia en distancias clave
+                      </p>
+                    </div>
+                  </div>
+                  {mejoresMarcas?.tiradaMasLargaKm > 0 && (
+                    <span className="px-2.5 py-1 rounded-full bg-[#0284C7] text-white text-[11px] font-semibold tabular-nums shrink-0">
+                      Tirada máx: {mejoresMarcas.tiradaMasLargaKm} km
+                    </span>
+                  )}
+                </div>
+
+                {mejoresMarcas?.carrera?.length > 0 ? (
+                  <div className="divide-y divide-[#F1F3F6]">
+                    {mejoresMarcas.carrera.map((c) => (
+                      <div
+                        key={c.distancia_m}
+                        className="py-2.5 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div>
+                          <p className="font-semibold text-[#1E2433]">
+                            {c.label}
+                          </p>
+                          <p className="text-[11px] text-[#6B7280]">
+                            {c.fecha ? formatCorto(c.fecha) : ''}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[14px] font-bold text-[#0284C7] tabular-nums">
+                            {formatRitmo(c.ritmo_seg_km)}/km
+                          </p>
+                          {(c.tiempo_estimado_s || c.duracion_s) > 0 && (
+                            <p className="text-[11px] text-[#4B5563] tabular-nums">
+                              {formatDuracion(c.tiempo_estimado_s || c.duracion_s)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#6B7280] py-2">
+                    Aún no hay ritmos de referencia o carreras registradas.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Acordeón de Insignias estilo Harbiz (sheet_4.jpg abajo-derecha) */
+            [
+              {
+                key: 'rodilla',
+                titulo: 'Salud y Reatletización de Rodilla',
+                filtro: (ins) =>
+                  ins.categoria === 'rodilla' ||
+                  ins.id.includes('rodilla') ||
+                  ins.id.includes('fase'),
+              },
+              {
+                key: 'constancia',
+                titulo: 'Constancia de Entrenamiento',
+                filtro: (ins) =>
+                  ins.categoria === 'constancia' ||
+                  ins.id.includes('entreno') ||
+                  ins.id.includes('constancia') ||
+                  ins.id.includes('semanas'),
+              },
+              {
+                key: 'carrera',
+                titulo: 'Carrera y Base Aeróbica',
+                filtro: (ins) =>
+                  ins.categoria === 'carrera' ||
+                  ins.id.includes('corredor') ||
+                  ins.id.includes('km_') ||
+                  ins.id.includes('media_maraton'),
+              },
+              {
+                key: 'fuerza',
+                titulo: 'Fuerza y Sobrecarga Progresiva',
+                filtro: (ins) =>
+                  ins.categoria === 'fuerza' ||
+                  ins.id.includes('fuerza') ||
+                  ins.id.includes('sobrecarga') ||
+                  ins.id.includes('peso_'),
+              },
+            ].map((grupo) => {
+              const items = (logros.insignias || []).filter(grupo.filtro)
+              const abierto = acordeonLogros[grupo.key]
+              return (
+                <div
+                  key={grupo.key}
+                  className="bg-white rounded-2xl border border-[#ECEEF2] shadow-2xs overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAcordeonLogros((prev) => ({
+                        ...prev,
+                        [grupo.key]: !abierto,
+                      }))
+                    }
+                    className="w-full px-4 py-3.5 flex items-center justify-between text-left"
+                  >
+                    <span className="text-[14px] font-medium text-[#1E2433]">
+                      {grupo.titulo} ({items.filter((i) => i.conseguido).length}/{items.length})
+                    </span>
+                    {abierto ? (
+                      <ChevronUp size={17} className="text-[#6B7280]" />
+                    ) : (
+                      <ChevronDown size={17} className="text-[#6B7280]" />
+                    )}
+                  </button>
+
+                  {abierto && (
+                    <div className="px-4 pb-4 pt-1 space-y-3 border-t border-[#F1F3F6]">
+                      {items.map((ins) => {
+                        const pct =
+                          ins.objetivo > 0
+                            ? Math.min(
+                                100,
+                                Math.round(((ins.progreso || 0) / ins.objetivo) * 100)
+                              )
+                            : 0
+                        return (
+                          <div key={ins.id} className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                                    ins.conseguido
+                                      ? 'bg-[#FEF0E6] text-[#EE6B2F]'
+                                      : 'bg-[#F5F5F7] text-[#9CA3AF]'
+                                  }`}
+                                >
+                                  {ins.conseguido ? (
+                                    <CheckCircle2 size={16} />
+                                  ) : (
+                                    <Award size={16} />
+                                  )}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-[13px] font-medium text-[#1E2433] truncate">
+                                    {ins.titulo}
+                                  </p>
+                                  <p className="text-[11px] text-[#6B7280]">
+                                    {ins.descripcion}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-xs font-semibold text-[#4B5563] tabular-nums shrink-0">
+                                {ins.progreso}/{ins.objetivo}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-[#F0F2F5] rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  ins.conseguido ? 'bg-emerald-500' : 'bg-[#EE8641]'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
       )}
     </div>

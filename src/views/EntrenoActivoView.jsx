@@ -18,7 +18,7 @@ import {
 import ExerciseThumb from '../components/ExerciseThumb'
 import Calculadora1RM from '../components/Calculadora1RM'
 import HistoricoModal from '../components/HistoricoModal'
-import { parseDecimal, parseEntero, formatDuracion } from '../../shared/numeros'
+import { parseDecimal, parseEntero, formatDuracion, formatDescanso } from '../../shared/numeros'
 import { formatCorto } from '../../shared/fechas'
 import { playRestBeep } from '../lib/media'
 
@@ -274,6 +274,16 @@ export default function EntrenoActivoView({
     }
   }
 
+  const handleGuardarYSalir = () => {
+    onUpdateEntreno((prev) => ({
+      ...prev,
+      enPausa: true,
+      duracionAcumuladaSeg: duracionSeg,
+      pausadoEnIso: new Date().toISOString(),
+    }))
+    onMinimize()
+  }
+
   return (
     <div className="min-h-dvh bg-[#F5F5F7] flex flex-col pb-24">
       {/* Barra superior blanca idéntica a f_014.jpg */}
@@ -281,10 +291,10 @@ export default function EntrenoActivoView({
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
-            onClick={onMinimize}
+            onClick={handleGuardarYSalir}
             className="w-9 h-9 -ml-1.5 rounded-full flex items-center justify-center text-[#1E2433] hover:bg-[#F5F5F7] transition"
-            title="Minimizar entrenamiento (sigue en curso)"
-            aria-label="Minimizar entrenamiento"
+            title="Guardar progreso y salir (pausar para continuar luego)"
+            aria-label="Guardar y salir"
           >
             <ArrowLeft size={21} strokeWidth={1.6} />
           </button>
@@ -298,12 +308,22 @@ export default function EntrenoActivoView({
             <Timer size={15} strokeWidth={1.7} className="text-[#1E2433]" />
             <span>{formatDuracion(duracionSeg)}</span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleGuardarYSalir}
+            className="px-2.5 py-1 rounded-full bg-[#242938] text-white text-[11px] font-semibold hover:bg-[#1E2433] transition"
+            title="Guardar progreso actual y salir para continuar luego"
+          >
+            Guardar y salir
+          </button>
+
           <button
             type="button"
             onClick={() => setModalDescartar(true)}
             className="w-8 h-8 rounded-full flex items-center justify-center text-[#9CA3AF] hover:text-red-600 hover:bg-red-50 transition"
-            title="Cancelar / descartar sesión"
-            aria-label="Cancelar sesión"
+            title="Descartar entrenamiento (sin que cuente para rodilla)"
+            aria-label="Descartar sesión"
           >
             <Trash2 size={15} />
           </button>
@@ -405,6 +425,18 @@ export default function EntrenoActivoView({
                         )
                         const ej = item.ejercicio || {}
                         const tipoReg = ej.tipo_registro || 'fuerza'
+                        const esIntervalosPista =
+                          tipoReg === 'carrera' ||
+                          String(item.reps_obj || '').toLowerCase().includes('1000m') ||
+                          String(item.reps_obj || '').toLowerCase().includes('metros')
+                        const descansoS =
+                          item.descanso_s > 0
+                            ? item.descanso_s
+                            : esIntervalosPista && String(item.reps_obj || '').includes('1000m')
+                            ? 120
+                            : item.descanso_s === 0
+                            ? 0
+                            : 90
                         const series = seriesPorItem[itemKey] || []
                         const todasCompletadas =
                           series.length > 0 && series.every((s) => s.completada)
@@ -505,10 +537,10 @@ export default function EntrenoActivoView({
                                 </span>
                               </div>
 
-                              {item.descanso_s > 0 && (
+                              {descansoS > 0 && (
                                 <button
                                   type="button"
-                                  onClick={() => iniciarDescanso(item.descanso_s)}
+                                  onClick={() => iniciarDescanso(descansoS)}
                                   className="flex items-center gap-2 text-[13px] text-[#4B5563] hover:text-[#1E2433]"
                                 >
                                   <Timer
@@ -516,7 +548,14 @@ export default function EntrenoActivoView({
                                     strokeWidth={1.5}
                                     className="text-[#6B7280] shrink-0"
                                   />
-                                  <span>{item.descanso_s}&quot; de descanso</span>
+                                  <span>
+                                    Descanso: {formatDescanso(descansoS)}{' '}
+                                    {esIntervalosPista
+                                      ? 'recuperación entre repeticiones/series'
+                                      : grupo.superserie !== null
+                                      ? 'entre ejercicios'
+                                      : 'entre series'}
+                                  </span>
                                 </button>
                               )}
 
@@ -585,7 +624,7 @@ export default function EntrenoActivoView({
                               <button
                                 type="button"
                                 onClick={() =>
-                                  toggleCompletarEjercicio(itemKey, item.descanso_s)
+                                  toggleCompletarEjercicio(itemKey, descansoS)
                                 }
                                 className={`h-10 px-6 rounded-full text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 border transition ${
                                   todasCompletadas
@@ -728,7 +767,7 @@ export default function EntrenoActivoView({
                                           toggleSerieCompletada(
                                             itemKey,
                                             sIdx,
-                                            item.descanso_s
+                                            descansoS
                                           )
                                         }
                                         className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${
@@ -962,14 +1001,34 @@ export default function EntrenoActivoView({
                     type="button"
                     disabled={guardandoFin}
                     onClick={handleConfirmarTerminar}
-                    className="w-full h-12 rounded-full bg-[#242938] text-white text-sm font-semibold shadow-md disabled:opacity-50"
+                    className="w-full h-12 rounded-full bg-[#242938] text-white text-sm font-semibold shadow-md disabled:opacity-50 hover:bg-[#1E2433] transition"
                   >
-                    {guardandoFin ? 'Guardando entrenamiento...' : 'Guardar y completar'}
+                    {guardandoFin ? 'Guardando entrenamiento...' : 'Guardar y completar (cuenta para rodilla)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalTerminar(false)
+                      handleGuardarYSalir()
+                    }}
+                    className="w-full h-11 rounded-full bg-[#F5F5F7] text-[#1E2433] text-xs font-semibold hover:bg-[#E8EBF0] transition"
+                  >
+                    Guardar y salir (pausar para continuar luego)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalTerminar(false)
+                      setModalDescartar(true)
+                    }}
+                    className="w-full h-9 rounded-full text-xs font-medium text-red-600 hover:bg-red-50 transition"
+                  >
+                    Descartar entrenamiento (no cuenta para rodilla)
                   </button>
                   <button
                     type="button"
                     onClick={() => setModalTerminar(false)}
-                    className="w-full h-10 rounded-full text-xs font-medium text-[#6B7280] hover:text-[#1E2433]"
+                    className="w-full h-8 rounded-full text-xs font-medium text-[#6B7280] hover:text-[#1E2433]"
                   >
                     Seguir entrenando
                   </button>
@@ -988,22 +1047,32 @@ export default function EntrenoActivoView({
               ¿Descartar entrenamiento?
             </h3>
             <p className="text-xs text-[#6B7280] leading-relaxed">
-              Si solo quieres consultar la Agenda o los Vídeos, usa la flecha superior izquierda para minimizar sin perder tus series.
+              Se eliminará este borrador y <strong>no contará para la progresión de 6 sesiones</strong> de rodilla. Si solo deseas pausar para retomarlo más tarde, pulsa &quot;Guardar y salir&quot;.
             </p>
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={onDiscardWorkout}
-                className="w-full h-11 rounded-full bg-red-600 text-white text-xs font-semibold"
+                className="w-full h-11 rounded-full bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition"
               >
-                Sí, descartar sin guardar
+                Sí, descartar sin que cuente
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalDescartar(false)
+                  handleGuardarYSalir()
+                }}
+                className="w-full h-10 rounded-full bg-[#242938] text-white text-xs font-semibold hover:bg-[#1E2433] transition"
+              >
+                Guardar y salir (pausar)
               </button>
               <button
                 type="button"
                 onClick={() => setModalDescartar(false)}
-                className="w-full h-10 rounded-full bg-[#F5F5F7] text-[#1E2433] text-xs font-semibold"
+                className="w-full h-9 rounded-full bg-[#F5F5F7] text-[#1E2433] text-xs font-semibold"
               >
-                Volver al entrenamiento
+                Continuar entrenando
               </button>
             </div>
           </div>

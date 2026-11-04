@@ -10,6 +10,8 @@ import {
   Calendar,
   X,
   Activity,
+  Play,
+  Trash2,
 } from 'lucide-react'
 import {
   getSesion,
@@ -17,9 +19,11 @@ import {
   sustituirEjercicio,
   moverSesion,
   cambiarEstadoSesion,
+  eliminarEntreno,
 } from '../lib/api'
 import ExerciseThumb from '../components/ExerciseThumb'
 import { formatLargo } from '../../shared/fechas'
+import { formatDescanso } from '../../shared/numeros'
 import { GRUPO_LABELS, IMPACTO_LABELS } from '../lib/media'
 
 /**
@@ -46,8 +50,10 @@ function agruparPorSuperserie(items = []) {
 export default function SesionPreviewView({
   sesionId,
   TheaterSlot = null,
+  entrenoActivo = null,
   onBack,
   onStartWorkout,
+  onDiscardWorkout,
   onOpenVideo,
   onOpenCarreraModal,
   onSessionUpdated,
@@ -57,6 +63,7 @@ export default function SesionPreviewView({
   const [error, setError] = useState('')
   const [verMasDesc, setVerMasDesc] = useState(false)
   const [colapsados, setColapsados] = useState({})
+  const [eliminandoEntreno, setEliminandoEntreno] = useState(false)
 
   // Modal sustituir ejercicio
   const [itemSustituir, setItemSustituir] = useState(null)
@@ -167,6 +174,31 @@ export default function SesionPreviewView({
   const bloques = detalle?.bloques || []
   const esCarrera = sesion?.tipo === 'carrera'
   const tieneEjercicios = bloques.some((b) => (b.items || []).length > 0)
+  const sesionEstaEnCursoOPausa = Boolean(
+    entrenoActivo &&
+      entrenoActivo.sesion &&
+      String(entrenoActivo.sesion.id) === String(sesion?.id)
+  )
+
+  const handleDescartarEntrenoCompletado = async () => {
+    const entrenoId = detalle?.entreno?.id || detalle?.sesion?.entreno_id
+    const sesionPlanId = detalle?.sesion?.id
+    if (!entrenoId && !sesionPlanId) return
+    const ok = window.confirm(
+      '¿Descartar este entrenamiento guardado? Se eliminarán sus series y NO contará para la progresión de 6 sesiones de rodilla.'
+    )
+    if (!ok) return
+    setEliminandoEntreno(true)
+    try {
+      await eliminarEntreno({ entrenoId, sesionPlanId })
+      await cargarSesion()
+      onSessionUpdated?.()
+    } catch (err) {
+      alert(err.message || 'Error al descartar el entrenamiento')
+    } finally {
+      setEliminandoEntreno(false)
+    }
+  }
 
   const toggleBloque = (orden) => {
     setColapsados((prev) => ({ ...prev, [orden]: !prev[orden] }))
@@ -321,6 +353,18 @@ export default function SesionPreviewView({
                           {grupo.items.map((item) => {
                             const seId = item.sesion_ejercicio_id ?? `${bloque.orden}_${item.orden}`
                             const ej = item.ejercicio || {}
+                            const esIntervalosPista =
+                              ej.tipo_registro === 'carrera' ||
+                              String(item.reps_obj || '').toLowerCase().includes('1000m') ||
+                              String(item.reps_obj || '').toLowerCase().includes('metros')
+                            const descansoS =
+                              item.descanso_s > 0
+                                ? item.descanso_s
+                                : esIntervalosPista && String(item.reps_obj || '').includes('1000m')
+                                ? 120
+                                : item.descanso_s === 0
+                                ? 0
+                                : 90
                             const textoObjetivo =
                               grupo.superserie !== null
                                 ? `${item.reps_obj}${item.rpe_obj ? ` / RPE ${item.rpe_obj}` : ''}`
@@ -360,10 +404,28 @@ export default function SesionPreviewView({
                                     )}
                                   </div>
 
-                                  <div className="flex items-center gap-2 mt-1">
+                                  <div className="flex flex-col gap-0.5 mt-1">
                                     <span className="text-[12px] font-medium text-[#1E2433]">
                                       {textoObjetivo}
                                     </span>
+                                    {descansoS > 0 && (
+                                      <span className="text-[11px] text-[#4B5563]">
+                                        Descanso:{' '}
+                                        <strong className="text-[#1E2433]">
+                                          {formatDescanso(descansoS)}
+                                        </strong>{' '}
+                                        {esIntervalosPista
+                                          ? 'recuperación entre repeticiones/series'
+                                          : grupo.superserie !== null
+                                          ? 'entre ejercicios de la superserie'
+                                          : 'entre series'}
+                                      </span>
+                                    )}
+                                    {item.nota && (
+                                      <span className="text-[10.5px] text-[#6B7280] italic leading-tight mt-0.5">
+                                        {item.nota}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
 
@@ -405,9 +467,36 @@ export default function SesionPreviewView({
       {/* Barra inferior fija Harbiz: el entreno SOLO comienza al pulsar voluntariamente aquí */}
       {sesion && (
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#ECEEF2] px-4 py-3 pb-safe">
-          <div className="max-w-[440px] mx-auto flex gap-2.5">
-            {esCarrera ? (
-              <>
+          <div className="max-w-[440px] mx-auto flex flex-col gap-2">
+            {sesionEstaEnCursoOPausa ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => onStartWorkout({ sesion, bloques })}
+                  className="w-full h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition flex items-center justify-center gap-2"
+                >
+                  <Play size={16} className="fill-white" />
+                  Reanudar entrenamiento {entrenoActivo?.enPausa ? '(en pausa)' : ''}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = window.confirm(
+                      '¿Descartar este borrador de entrenamiento? No se guardará nada y NO contará para la progresión de 6 sesiones de tu rodilla.'
+                    )
+                    if (ok) {
+                      onDiscardWorkout?.()
+                      onBack()
+                    }
+                  }}
+                  className="w-full h-9 rounded-full bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} />
+                  Descartar borrador (no cuenta para rodilla)
+                </button>
+              </div>
+            ) : esCarrera ? (
+              <div className="flex gap-2.5">
                 <button
                   type="button"
                   onClick={() => onOpenCarreraModal(sesion)}
@@ -424,16 +513,35 @@ export default function SesionPreviewView({
                     Iniciar bloques
                   </button>
                 )}
-              </>
+              </div>
+            ) : sesion.estado === 'completada' ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => onStartWorkout({ sesion, bloques })}
+                  className="w-full h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition"
+                >
+                  Repetir entrenamiento
+                </button>
+                <button
+                  type="button"
+                  disabled={eliminandoEntreno}
+                  onClick={handleDescartarEntrenoCompletado}
+                  className="w-full h-9 rounded-full bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 size={13} />
+                  {eliminandoEntreno
+                    ? 'Descartando...'
+                    : 'Descartar entrenamiento guardado (no cuenta para rodilla)'}
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
                 onClick={() => onStartWorkout({ sesion, bloques })}
                 className="w-full h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition"
               >
-                {sesion.estado === 'completada'
-                  ? 'Repetir entrenamiento'
-                  : 'Iniciar entrenamiento'}
+                Iniciar entrenamiento
               </button>
             )}
           </div>

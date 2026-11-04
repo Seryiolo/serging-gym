@@ -122,6 +122,13 @@ export function cambiarEstadoSesion({ sesionId, estado }) {
   })
 }
 
+export function reorganizarSemana({ cambios, lunes }) {
+  return request('/api/semana', {
+    method: 'POST',
+    body: { action: 'reorganizar_semana', cambios, lunes },
+  })
+}
+
 // ---------------------------------------------------------------- 4. Sesion
 export function getSesion(id) {
   return request(`/api/sesion?id=${encodeURIComponent(id)}`)
@@ -131,6 +138,17 @@ export function completarSesion(payload) {
   return request('/api/sesion', {
     method: 'POST',
     body: { action: 'completar', ...payload },
+  })
+}
+
+export function eliminarEntreno(target) {
+  const payload =
+    typeof target === 'object' && target !== null
+      ? { action: 'eliminar_entreno', ...target }
+      : { action: 'eliminar_entreno', entrenoId: target }
+  return request('/api/sesion', {
+    method: 'POST',
+    body: payload,
   })
 }
 

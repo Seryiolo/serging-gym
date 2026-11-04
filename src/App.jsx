@@ -8,7 +8,9 @@ import {
   getCarreras,
   getEjercicios,
   generarSemana,
+  reorganizarSemana,
   completarSesion,
+  eliminarEntreno,
   registrarHinchazonPendiente,
   registrarPeso,
   eliminarPeso,
@@ -21,7 +23,7 @@ import {
   toggleFavoritoEjercicio,
   crearEjercicio,
 } from './lib/api'
-import { hoyMadrid, lunesDe } from '../shared/fechas'
+import { hoyMadrid, lunesDe, addDias } from '../shared/fechas'
 import { formatDuracion } from '../shared/numeros'
 
 import Header from './components/Header'
@@ -31,6 +33,7 @@ import WorkoutVideoPlayer from './components/WorkoutVideoPlayer'
 import PesoModal from './components/PesoModal'
 import CarreraModal from './components/CarreraModal'
 import GenerarSemanaModal from './components/GenerarSemanaModal'
+import ReorganizarSemanaModal from './components/ReorganizarSemanaModal'
 import NuevoEjercicioModal from './components/NuevoEjercicioModal'
 
 import LoginView from './views/LoginView'
@@ -146,6 +149,7 @@ export default function App() {
   const [pesoModalFecha, setPesoModalFecha] = useState(null)
   const [carreraModalCtx, setCarreraModalCtx] = useState(undefined) // undefined = cerrado, null = libre, obj = sesionPlan
   const [generarSemanaLunes, setGenerarSemanaLunes] = useState(null)
+  const [reorganizarSemanaLunes, setReorganizarSemanaLunes] = useState(null)
   const [modalNuevoEjercicio, setModalNuevoEjercicio] = useState(false)
 
   // Persistencia automática del entrenamiento en curso
@@ -161,15 +165,20 @@ export default function App() {
     }
   }, [entrenoActivo])
 
-  // Reloj en vivo de 1s mientras hay un entrenamiento activo
+  // Reloj en vivo de 1s mientras hay un entrenamiento activo (no pausado)
   useEffect(() => {
-    if (!entrenoActivo) return undefined
+    if (!entrenoActivo || entrenoActivo.enPausa) return undefined
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [entrenoActivo])
+  }, [entrenoActivo, entrenoActivo?.enPausa])
 
   const duracionEntrenoSeg = entrenoActivo
-    ? Math.max(0, Math.floor((nowMs - (entrenoActivo.inicioEpochMs || nowMs)) / 1000))
+    ? entrenoActivo.enPausa
+      ? (entrenoActivo.duracionAcumuladaSeg || 0)
+      : Math.max(
+          entrenoActivo.duracionAcumuladaSeg || 0,
+          Math.floor((nowMs - (entrenoActivo.inicioEpochMs || nowMs)) / 1000)
+        )
     : 0
 
   const cargarDatosPrincipales = useCallback(
@@ -277,6 +286,19 @@ export default function App() {
     []
   )
 
+  const handleReanudarEntreno = useCallback(() => {
+    if (!entrenoActivo) return
+    const acumulado = entrenoActivo.duracionAcumuladaSeg || 0
+    setEntrenoActivo((prev) => ({
+      ...prev,
+      enPausa: false,
+      inicioEpochMs: Date.now() - acumulado * 1000,
+    }))
+    setNowMs(Date.now())
+    setPreviewSesionId(null)
+    setEntrenoMinimizado(false)
+  }, [entrenoActivo])
+
   // --- Handlers de Inicio Voluntario de Entrenamiento ---
   const handleRequestStartWorkout = useCallback(
     (detalleSesion) => {
@@ -284,15 +306,21 @@ export default function App() {
       if (
         entrenoActivo &&
         entrenoActivo.sesion?.id &&
-        entrenoActivo.sesion.id === detalleSesion.sesion?.id
+        String(entrenoActivo.sesion.id) === String(detalleSesion.sesion?.id)
       ) {
-        setPreviewSesionId(null)
-        setEntrenoMinimizado(false)
+        handleReanudarEntreno()
         return
+      }
+      if (entrenoActivo) {
+        const tituloPrevio = entrenoActivo.sesion?.titulo || 'Entrenamiento en curso'
+        const ok = window.confirm(
+          `Tienes "${tituloPrevio}" en curso o en pausa. ¿Deseas descartarlo para comenzar esta nueva sesión?`
+        )
+        if (!ok) return
       }
       setPendientePreparate(detalleSesion)
     },
-    [entrenoActivo]
+    [entrenoActivo, handleReanudarEntreno]
   )
 
   const handleFinishPreparate = useCallback(() => {
@@ -356,6 +384,23 @@ export default function App() {
     await cargarDatosPrincipales({
       mes: params.lunes.slice(0, 7),
       lunes: params.lunes,
+    })
+  }
+
+  const handleReorganizarSemana = async ({ cambios, lunes }) => {
+    const lunesObjetivo = lunes || reorganizarSemanaLunes || lunesDe(fechaAgenda)
+    await reorganizarSemana({ cambios, lunes: lunesObjetivo })
+    await cargarDatosPrincipales({
+      mes: lunesObjetivo.slice(0, 7),
+      lunes: lunesObjetivo,
+    })
+  }
+
+  const handleEliminarEntreno = async (target) => {
+    await eliminarEntreno(target)
+    await cargarDatosPrincipales({
+      mes: fechaAgenda.slice(0, 7),
+      lunes: lunesDe(fechaAgenda),
     })
   }
 
@@ -546,8 +591,10 @@ export default function App() {
           <SesionPreviewView
             sesionId={previewSesionId}
             TheaterSlot={playerNode}
+            entrenoActivo={entrenoActivo}
             onBack={() => setPreviewSesionId(null)}
             onStartWorkout={handleRequestStartWorkout}
+            onDiscardWorkout={handleDiscardWorkout}
             onOpenVideo={handleOpenVideo}
             onOpenCarreraModal={(sesionPlan) => setCarreraModalCtx(sesionPlan)}
             onSessionUpdated={() =>
@@ -586,12 +633,22 @@ export default function App() {
                   resumenSemana={bootstrap?.resumenSemana}
                   videosDestacados={bootstrap?.videosDestacados || []}
                   entrenosPendientesHinchazon={entrenosPendientesHinchazon}
+                  entrenoActivo={entrenoActivo}
+                  onReanudarWorkout={handleReanudarEntreno}
+                  onDiscardWorkout={handleDiscardWorkout}
                   onOpenSessionPreview={(id) => setPreviewSesionId(id)}
                   onOpenPesoModal={(f) => setPesoModalFecha(f || hoy)}
                   onOpenCarreraModal={(sp) => setCarreraModalCtx(sp ?? null)}
                   onOpenGenerarSemana={(lunes) =>
                     setGenerarSemanaLunes(lunes || lunesDe(hoy))
                   }
+                  onOpenReorganizarSemana={(lunes) =>
+                    setReorganizarSemanaLunes(lunes || lunesDe(hoy))
+                  }
+                  onIrAgendaFecha={(fecha) => {
+                    setFechaAgenda(fecha)
+                    setActiveTab('agenda')
+                  }}
                   onGoToVideos={() => setActiveTab('videos')}
                   onGoToRodilla={() => {
                     setEvolucionSubTab('rodilla')
@@ -613,6 +670,9 @@ export default function App() {
                   onOpenSessionPreview={(id) => setPreviewSesionId(id)}
                   onOpenGenerarSemana={(lunes) =>
                     setGenerarSemanaLunes(lunes || lunesDe(fechaAgenda))
+                  }
+                  onOpenReorganizarSemana={(lunes) =>
+                    setReorganizarSemanaLunes(lunes || lunesDe(fechaAgenda))
                   }
                   onOpenCarreraModal={(sp) => setCarreraModalCtx(sp ?? null)}
                   onOpenPesoModal={(f) => setPesoModalFecha(f || fechaAgenda)}
@@ -645,6 +705,7 @@ export default function App() {
                   onEliminarObjetivo={handleEliminarObjetivo}
                   onActualizarRitmo={handleActualizarRitmo}
                   onEliminarCarrera={handleEliminarCarrera}
+                  onEliminarEntreno={handleEliminarEntreno}
                 />
               )}
             </main>
@@ -654,13 +715,20 @@ export default function App() {
               <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-[calc(100%-24px)] max-w-[436px] z-40">
                 <button
                   type="button"
-                  onClick={() => setEntrenoMinimizado(false)}
+                  onClick={handleReanudarEntreno}
                   className="w-full h-12 px-4 rounded-2xl bg-[#242938] text-white shadow-lg flex items-center justify-between gap-3"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        entrenoActivo.enPausa
+                          ? 'bg-amber-400'
+                          : 'bg-emerald-400 animate-pulse'
+                      }`}
+                    />
                     <span className="text-xs font-semibold truncate">
                       {entrenoActivo.sesion?.titulo || 'Entrenamiento en curso'}
+                      {entrenoActivo.enPausa ? ' (En pausa)' : ''}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -670,7 +738,7 @@ export default function App() {
                     </span>
                     <span className="px-2.5 py-1 rounded-full bg-[#EE8641] text-white text-[11px] font-semibold inline-flex items-center gap-1">
                       <Play size={10} className="fill-white" />
-                      Volver
+                      {entrenoActivo.enPausa ? 'Reanudar' : 'Volver'}
                     </span>
                   </div>
                 </button>
@@ -720,6 +788,21 @@ export default function App() {
             rodilla={rodillaActiva}
             onGenerar={handleGenerarSemana}
             onClose={() => setGenerarSemanaLunes(null)}
+          />
+        )}
+
+        {reorganizarSemanaLunes && (
+          <ReorganizarSemanaModal
+            lunes={reorganizarSemanaLunes}
+            sesionesSemana={
+              (bootstrap?.sesionesMes || []).filter(
+                (s) =>
+                  s.fecha >= reorganizarSemanaLunes &&
+                  s.fecha <= addDias(reorganizarSemanaLunes, 6)
+              )
+            }
+            onReorganizar={handleReorganizarSemana}
+            onClose={() => setReorganizarSemanaLunes(null)}
           />
         )}
 

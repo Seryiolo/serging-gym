@@ -11,6 +11,7 @@ import {
   Scale,
   Calendar,
   Sparkles,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   addDias,
@@ -87,6 +88,7 @@ export default function AgendaView({
   onNavigatePeriodo,
   onOpenSessionPreview,
   onOpenGenerarSemana,
+  onOpenReorganizarSemana,
   onOpenCarreraModal,
   onOpenPesoModal,
   activeWorkoutRunning = false,
@@ -194,26 +196,59 @@ export default function AgendaView({
         <h1 className="text-[32px] font-light tracking-tight text-[#1E2433] leading-none">
           Agenda
         </h1>
-        <button
-          type="button"
-          onClick={() =>
-            setModoVista((m) => (m === 'semanal' ? 'mensual' : 'semanal'))
-          }
-          className="w-9 h-9 rounded-xl flex items-center justify-center text-[#1E2433]/80 hover:bg-white/70 transition"
-          title={
-            modoVista === 'semanal'
-              ? 'Cambiar a calendario mensual'
-              : 'Cambiar a vista semanal'
-          }
-          aria-label="Alternar vista semanal o mensual"
-        >
-          {modoVista === 'semanal' ? (
-            <Calendar31ToggleIcon />
-          ) : (
-            <List size={21} strokeWidth={1.6} />
-          )}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onOpenReorganizarSemana?.(lunesActualVista)}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-[#1E2433]/80 hover:bg-white/70 transition"
+            title="Reorganizar semana (intercambiar días)"
+            aria-label="Reorganizar semana"
+          >
+            <ArrowUpDown size={19} strokeWidth={1.6} />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setModoVista((m) => (m === 'semanal' ? 'mensual' : 'semanal'))
+            }
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-[#1E2433]/80 hover:bg-white/70 transition"
+            title={
+              modoVista === 'semanal'
+                ? 'Cambiar a calendario mensual'
+                : 'Cambiar a vista semanal'
+            }
+            aria-label="Alternar vista semanal o mensual"
+          >
+            {modoVista === 'semanal' ? (
+              <Calendar31ToggleIcon />
+            ) : (
+              <List size={21} strokeWidth={1.6} />
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* Banner rápido para saltar al 16 nov si la fecha seleccionada es anterior */}
+      {fechaSeleccionada < '2026-11-16' && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-3 flex items-center justify-between gap-2.5 text-xs shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <Calendar size={16} className="text-[#EE8641] shrink-0" />
+            <span className="text-amber-950 truncate">
+              Inicio oficial del entreno: <strong>16 nov 2026</strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onSelectFecha('2026-11-16')
+              onNavigatePeriodo?.('2026-11-16')
+            }}
+            className="px-3 py-1 rounded-full bg-[#242938] text-white text-[11px] font-semibold shrink-0 hover:opacity-95"
+          >
+            Ir a semana
+          </button>
+        </div>
+      )}
 
       {/* Selector de periodo < Nov 2026 - Semana 2 al 8 > */}
       <div className="flex items-center justify-between px-0.5">
@@ -464,6 +499,27 @@ export default function AgendaView({
                 <X size={17} />
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFabAbierto(false)
+                onOpenReorganizarSemana?.(lunesActualVista)
+              }}
+              className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl bg-[#F5F5F7] hover:bg-[#ECEFF4] text-left transition"
+            >
+              <span className="w-10 h-10 rounded-full bg-[#EE8641] text-white flex items-center justify-center shrink-0">
+                <ArrowUpDown size={18} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-[#1E2433]">
+                  Reorganizar semana (intercambiar días)
+                </p>
+                <p className="text-xs text-[#6B7280]">
+                  Intercambia días de carrera o torso para ajustar a tus horarios
+                </p>
+              </div>
+            </button>
 
             <button
               type="button"

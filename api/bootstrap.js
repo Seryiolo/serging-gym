@@ -4,11 +4,12 @@
  */
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, sendJson, withErrorHandling } from './_lib/http.js'
-import { readBatch } from './_lib/turso.js'
-import { construirEstadoRodilla } from './_lib/planner-db.js'
+import { queryOne, readBatch } from './_lib/turso.js'
+import { construirEstadoRodilla, generarSemanaPlan } from './_lib/planner-db.js'
 import { addDias, esISO, hoyMadrid, lunesDe } from '../shared/fechas.js'
 
 const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+const LUNES_INICIO_ENTRENO = '2026-11-16'
 
 export default withErrorHandling(async function bootstrapHandler(req, res) {
   if (req.method !== 'GET') {
@@ -17,6 +18,25 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
 
   const user = await requireUser(req, res)
   if (!user) return
+
+  // Asegurar que la semana del 16 de noviembre está generada para el usuario
+  try {
+    const semanaInicioExistente = await queryOne(
+      'SELECT id FROM semanas WHERE user_id = ? AND lunes = ? LIMIT 1',
+      [user.id, LUNES_INICIO_ENTRENO],
+    )
+    if (!semanaInicioExistente) {
+      await generarSemanaPlan(user.id, {
+        lunes: LUNES_INICIO_ENTRENO,
+        dias: 5,
+        hayCarrera: false,
+        segundoSuperior: false,
+        sobreescribir: false,
+      })
+    }
+  } catch {
+    // Continuar con bootstrap normal si ya existiera o hubo error concurrente
+  }
 
   const q = getQuery(req)
   const hoy = hoyMadrid()
@@ -38,6 +58,9 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
     if (iniMes < desdeMes) desdeMes = iniMes
     if (finMes > hastaMes) hastaMes = finMes
   }
+  if (desdeMes > LUNES_INICIO_ENTRENO) desdeMes = addDias(LUNES_INICIO_ENTRENO, -7)
+  const finSemanaInicio = addDias(LUNES_INICIO_ENTRENO, 7)
+  if (hastaMes < finSemanaInicio) hastaMes = finSemanaInicio
 
   const [
     perfilRows,
@@ -168,6 +191,7 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
 
   return sendJson(res, 200, {
     hoy,
+    fechaInicioEntrenamiento: LUNES_INICIO_ENTRENO,
     user,
     perfil,
     rodilla,

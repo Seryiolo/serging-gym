@@ -213,6 +213,25 @@ test('seeds y pipeline de vídeos: 30 slugs personales mapeados 1-a-1, sin colis
     )
   }
 
+  // Verificar nuevos 22 vídeos del programa de readaptación ACL-R 3.0
+  const pyNuevoContent = fs.readFileSync(
+    path.join(ROOT, 'scripts', 'videos', '05_recortar_video_nuevo.py'),
+    'utf8'
+  )
+  const nuevoRe = /\(\s*\d+\s*,\s*"([a-z0-9-]+)"\s*,/g
+  const nuevosSlugs = Array.from(pyNuevoContent.matchAll(nuevoRe)).map((m) => m[1])
+  assert.equal(nuevosSlugs.length, 22, 'Deben existir 22 ejercicios en 05_recortar_video_nuevo.py')
+  for (const slug of nuevosSlugs) {
+    const videoFile = path.join(ROOT, 'public', 'videos', 'rodilla', `${slug}.mp4`)
+    const posterFile = path.join(ROOT, 'public', 'videos', 'posters', `${slug}.jpg`)
+    assert.ok(fs.existsSync(videoFile), `Falta archivo físico de vídeo: ${slug}.mp4`)
+    assert.ok(fs.existsSync(posterFile), `Falta archivo físico de póster: ${slug}.jpg`)
+    assert.ok(
+      sqlEj.includes(`'/videos/rodilla/${slug}.mp4'`),
+      `Falta registrar vídeo /videos/rodilla/${slug}.mp4 en seed_ejercicios.sql`
+    )
+  }
+
   // Verificar plantillas y claves foráneas de plantilla_huecos -> ejercicios(id)
   const sqlPl = fs.readFileSync(path.join(ROOT, 'db', 'seed_plantillas.sql'), 'utf8')
   assert.ok(sqlPl.includes('ON CONFLICT(id) DO UPDATE'))

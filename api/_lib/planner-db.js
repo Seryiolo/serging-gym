@@ -421,6 +421,28 @@ export async function generarSemanaPlan(
     })
 
     const usadosEnSesion = new Set()
+    const esSesionExterior =
+      plantilla.tipo === 'carrera' || plantilla.tipo === 'pliometria_agilidad'
+    const ctxSesion = {
+      ...ctx,
+      excluirEquipo: esSesionExterior
+        ? [
+            'barra',
+            'mancuerna',
+            'maquina',
+            'máquina',
+            'polea',
+            'rack',
+            'multipower',
+            'prensa',
+            'fitball',
+            'landmine',
+            'trineo',
+            'kettlebell',
+            'disco',
+          ]
+        : ['conos', 'pista', 'vallas'],
+    }
     for (const bloque of plantilla.bloques) {
       for (const hueco of bloque.huecos) {
         const resuelto = resolverEjercicioHueco({
@@ -431,7 +453,7 @@ export async function generarSemanaPlan(
           userId,
           catalogo,
           catalogoMap,
-          ctx,
+          ctx: ctxSesion,
           historialMap,
           usadosEnSesion,
         })
@@ -483,7 +505,7 @@ export async function generarSemanaPlan(
  */
 export async function candidatosSustitucion(userId, sesionEjercicioId) {
   const actual = await queryOne(
-    `SELECT se.id, se.ejercicio_id, e.grupo, e.patron, e.tipo_registro
+    `SELECT se.id, se.ejercicio_id, sp.tipo AS sesion_tipo, e.grupo, e.patron, e.tipo_registro
      FROM sesion_ejercicios se
      JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
      JOIN ejercicios e ON e.id = se.ejercicio_id
@@ -517,9 +539,28 @@ export async function candidatosSustitucion(userId, sesionEjercicioId) {
   ])
 
   const faseFallback = fasesRows[0] || { id: 1, impacto_max: 1 }
+  const esSesionExterior =
+    actual.sesion_tipo === 'carrera' || actual.sesion_tipo === 'pliometria_agilidad'
   const ctx = {
     faseId: rodillaRows[0]?.fase_id ?? faseFallback.id,
     impactoMax: rodillaRows[0]?.impacto_max ?? faseFallback.impacto_max,
+    excluirEquipo: esSesionExterior
+      ? [
+          'barra',
+          'mancuerna',
+          'maquina',
+          'máquina',
+          'polea',
+          'rack',
+          'multipower',
+          'prensa',
+          'fitball',
+          'landmine',
+          'trineo',
+          'kettlebell',
+          'disco',
+        ]
+      : ['conos', 'pista', 'vallas'],
   }
 
   let cands = candidatosDeHueco(catalogo, { grupo: actual.grupo }, ctx).filter(

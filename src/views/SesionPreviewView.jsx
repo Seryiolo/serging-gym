@@ -12,6 +12,7 @@ import {
   Activity,
   Play,
   Trash2,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   getSesion,
@@ -23,7 +24,7 @@ import {
 } from '../lib/api'
 import ExerciseThumb from '../components/ExerciseThumb'
 import { formatLargo } from '../../shared/fechas'
-import { formatDescanso } from '../../shared/numeros'
+import { formatDescanso, formatearMarcaLogica } from '../../shared/numeros'
 import { GRUPO_LABELS, IMPACTO_LABELS } from '../lib/media'
 
 /**
@@ -56,6 +57,7 @@ export default function SesionPreviewView({
   onDiscardWorkout,
   onOpenVideo,
   onOpenCarreraModal,
+  onOpenReorganizarSemana,
   onSessionUpdated,
 }) {
   const [detalle, setDetalle] = useState(null)
@@ -219,14 +221,26 @@ export default function SesionPreviewView({
           </button>
 
           {sesion && (
-            <button
-              type="button"
-              onClick={() => setModalAjustes(true)}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-[#1E2433]/80 hover:bg-white/60 transition"
-              aria-label="Ajustes de la sesión"
-            >
-              <Settings size={20} strokeWidth={1.5} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              {onOpenReorganizarSemana && (
+                <button
+                  type="button"
+                  onClick={() => onOpenReorganizarSemana(sesion.fecha)}
+                  className="h-8 px-3 rounded-full bg-white/85 border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] flex items-center gap-1.5 shadow-2xs hover:bg-white transition whitespace-nowrap"
+                >
+                  <ArrowUpDown size={12} className="text-[#EE8641] shrink-0" />
+                  <span>Mover día</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setModalAjustes(true)}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-[#1E2433]/80 hover:bg-white/60 transition"
+                aria-label="Ajustes de la sesión"
+              >
+                <Settings size={20} strokeWidth={1.5} />
+              </button>
+            </div>
           )}
         </header>
 
@@ -392,14 +406,12 @@ export default function SesionPreviewView({
                                     {item.ultima_marca && (
                                       <p className="text-[11px] text-[#6B7280] mt-0.5">
                                         Última marca:{' '}
-                                        {item.ultima_marca.peso_kg
-                                          ? `${item.ultima_marca.peso_kg} kg × `
-                                          : ''}
-                                        {item.ultima_marca.reps
-                                          ? `${item.ultima_marca.reps} reps`
-                                          : item.ultima_marca.segundos
-                                          ? `${item.ultima_marca.segundos}s`
-                                          : ''}
+                                        <span className="font-medium text-[#1E2433]">
+                                          {formatearMarcaLogica(
+                                            item.ultima_marca,
+                                            ej.tipo_registro
+                                          )}
+                                        </span>
                                       </p>
                                     )}
                                   </div>
@@ -496,21 +508,33 @@ export default function SesionPreviewView({
                 </button>
               </div>
             ) : esCarrera ? (
-              <div className="flex gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => onOpenCarreraModal(sesion)}
-                  className="flex-1 h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition"
-                >
-                  Registrar carrera completada
-                </button>
-                {tieneEjercicios && (
+              <div className="flex flex-col gap-2">
+                {tieneEjercicios ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onStartWorkout({ sesion, bloques })}
+                      className="w-full h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition flex items-center justify-center gap-2"
+                    >
+                      <Play size={15} className="fill-white" />
+                      Iniciar sesión (anotar tiempos de cada serie)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenCarreraModal(sesion)}
+                      className="w-full h-9 rounded-full border border-[#D8DCE3] text-[#1E2433] text-xs font-semibold bg-white hover:bg-[#F5F5F7] transition flex items-center justify-center gap-1.5"
+                    >
+                      <Activity size={13} className="text-[#EE8641]" />
+                      Registro directo de carrera (resumen total de reloj GPS)
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => onStartWorkout({ sesion, bloques })}
-                    className="px-4 h-12 rounded-full border border-[#242938] text-[#1E2433] text-[13px] font-semibold bg-white"
+                    onClick={() => onOpenCarreraModal(sesion)}
+                    className="w-full h-12 rounded-full bg-[#242938] text-white text-[14px] font-semibold shadow-sm hover:opacity-95 transition"
                   >
-                    Iniciar bloques
+                    Registrar carrera completada
                   </button>
                 )}
               </div>
@@ -635,30 +659,43 @@ export default function SesionPreviewView({
 
             <form onSubmit={handleMoverFecha} className="space-y-2.5">
               <label className="block text-xs font-medium text-[#6B7280]">
-                Mover sesión a otro día
+                Mover sesión a otra fecha concreta
               </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
+              <div className="space-y-2">
+                <div className="relative w-full">
                   <input
                     type="date"
                     value={nuevaFecha}
                     onChange={(e) => setNuevaFecha(e.target.value)}
                     className="w-full h-11 rounded-xl bg-[#F5F5F7] border border-[#E5E7EB] px-3 text-sm text-[#1E2433]"
                   />
-                  <Calendar
-                    size={15}
-                    className="pointer-events-none absolute right-3 top-3.5 text-[#6B7280]"
-                  />
                 </div>
                 <button
                   type="submit"
                   disabled={guardandoAjuste}
-                  className="px-4 h-11 rounded-xl bg-[#242938] text-white text-xs font-semibold"
+                  className="w-full h-11 rounded-full bg-[#242938] text-white text-xs font-semibold flex items-center justify-center gap-1.5"
                 >
-                  Mover
+                  <Calendar size={14} />
+                  {guardandoAjuste ? 'Moviendo...' : 'Mover a la fecha elegida'}
                 </button>
               </div>
             </form>
+
+            {onOpenReorganizarSemana && (
+              <div className="pt-2 border-t border-[#ECEEF2]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalAjustes(false)
+                    onOpenReorganizarSemana(sesion.fecha)
+                  }}
+                  className="w-full h-11 rounded-full bg-[#FEF4EC] border border-[#F4985C]/50 text-[#1E2433] text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-[#FDE9D9] transition"
+                >
+                  <ArrowUpDown size={14} className="text-[#EE8641]" />
+                  Intercambiar días de esta semana
+                </button>
+              </div>
+            )}
 
             <div className="pt-2 border-t border-[#ECEEF2] space-y-2">
               <span className="block text-xs font-medium text-[#6B7280]">

@@ -21,6 +21,12 @@ import {
   isYouTubeExercise,
 } from '../src/lib/media.js'
 import { T } from '../shared/planner.js'
+import {
+  parseTiempoSegundos,
+  formatSegundosInput,
+  extraerDistanciaMetros,
+  formatearMarcaLogica,
+} from '../shared/numeros.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -253,6 +259,35 @@ test('seeds y pipeline de vídeos: 30 slugs personales mapeados 1-a-1, sin colis
     )
   }
   assert.ok(countHuecos >= 35, `Deben existir al menos 35 huecos en plantillas, encontrados: ${countHuecos}`)
+})
+
+// --------------------------------------------------- 5b. Marcas Lógicas y Series de Carrera
+test('numeros: parseTiempoSegundos, extraerDistanciaMetros y formatearMarcaLogica por tipo de actividad', () => {
+  assert.equal(parseTiempoSegundos('3:55'), 235)
+  assert.equal(parseTiempoSegundos('03:52'), 232)
+  assert.equal(parseTiempoSegundos('1:05:00'), 3900)
+  assert.equal(parseTiempoSegundos('45'), 45)
+  assert.equal(parseTiempoSegundos('3:75'), null)
+  assert.equal(formatSegundosInput(235, true), '3:55')
+  assert.equal(formatSegundosInput(45, false), '45')
+
+  assert.equal(extraerDistanciaMetros('1000m @ Z4-Z5', 'Series de 1000m'), 1000)
+  assert.equal(extraerDistanciaMetros('2000m @ Z4', 'Series de 2000m'), 2000)
+  assert.equal(extraerDistanciaMetros('40 metros', 'Skipping'), 40)
+  assert.equal(extraerDistanciaMetros('8k - 14k Z2', 'Rodaje Z2'), 8000)
+
+  assert.equal(
+    formatearMarcaLogica({ reps: 1000, segundos: 232 }, 'carrera'),
+    '1000m en 3:52 (3:52/km)'
+  )
+  assert.equal(
+    formatearMarcaLogica({ segundos: 35, peso_kg: 10 }, 'isometrico'),
+    '35 seg · 10 kg'
+  )
+  assert.equal(
+    formatearMarcaLogica({ peso_kg: 70, reps: 8 }, 'fuerza'),
+    '70 kg × 8 reps'
+  )
 })
 
 // --------------------------------------------------- 6. Auditoría Cero Secretos

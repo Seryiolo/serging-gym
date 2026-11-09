@@ -2,6 +2,11 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react'
 import { getEjercicioHistorico } from '../lib/api'
 import { anioDe, mesDe, nombreMes, formatCorto } from '../../shared/fechas'
+import {
+  formatDuracion,
+  formatRitmo,
+  formatearMarcaLogica,
+} from '../../shared/numeros'
 
 const HarbizAreaChart = lazy(() => import('./HarbizAreaChart'))
 
@@ -56,14 +61,52 @@ export default function HistoricoModal({ ejercicio, onClose }) {
     return Array.from(vistos.entries()).map(([key, label]) => ({ key, label }))
   }, [data])
 
-  const esPorTiempo = useMemo(() => {
-    const tipo = data?.ejercicio?.tipo_registro || ejercicio?.tipo_registro
-    if (tipo === 'isometrico' || tipo === 'tiempo') {
-      const algunPeso = (data?.puntosGrafica || []).some((p) => (p.maxKg || 0) > 0)
-      return !algunPeso
+  const modoMetrica = useMemo(() => {
+    const tipo = data?.ejercicio?.tipo_registro || ejercicio?.tipo_registro || 'fuerza'
+    const puntos = data?.puntosGrafica || []
+    if (tipo === 'carrera') {
+      const tieneRitmo = puntos.some((p) => (p.mejorRitmoSegKm || 0) > 0)
+      return tieneRitmo ? 'carrera_ritmo' : 'tiempo'
     }
-    return false
+    if (tipo === 'isometrico' || tipo === 'tiempo') {
+      const algunPeso = puntos.some((p) => (p.maxKg || 0) > 0)
+      return algunPeso ? 'peso' : 'tiempo'
+    }
+    const algunPeso = puntos.some((p) => (p.maxKg || 0) > 0)
+    if (algunPeso) return 'peso'
+    const algunSeg = puntos.some((p) => (p.maxSeg || 0) > 0)
+    if (algunSeg && tipo === 'movilidad') return 'tiempo'
+    return 'reps'
   }, [data, ejercicio])
+
+  const metaGrafica = useMemo(() => {
+    if (modoMetrica === 'carrera_ritmo') {
+      return {
+        titulo: 'Tiempo / Ritmo en serie (seg/km)',
+        subtitulo: 'Mejor ritmo por sesión (menor tiempo = más rápido)',
+        unidad: 's/km',
+      }
+    }
+    if (modoMetrica === 'tiempo') {
+      return {
+        titulo: 'Tiempo (segundos)',
+        subtitulo: 'Duración máxima mantenida por sesión',
+        unidad: 's',
+      }
+    }
+    if (modoMetrica === 'reps') {
+      return {
+        titulo: 'Repeticiones / Saltos',
+        subtitulo: 'Máximo de repeticiones por serie',
+        unidad: 'reps',
+      }
+    }
+    return {
+      titulo: 'Peso (Kg)',
+      subtitulo: 'Peso máximo levantado por día',
+      unidad: 'kg',
+    }
+  }, [modoMetrica])
 
   const puntosFiltrados = useMemo(() => {
     const puntos = data?.puntosGrafica || []
@@ -71,11 +114,21 @@ export default function HistoricoModal({ ejercicio, onClose }) {
       mesFiltro === 'todos'
         ? puntos
         : puntos.filter((p) => p.fecha?.startsWith(mesFiltro))
-    return base.map((p) => ({
-      etiqueta: formatCorto(p.fecha),
-      valor: esPorTiempo ? p.maxSeg ?? 0 : p.maxKg ?? 0,
-    }))
-  }, [data, mesFiltro, esPorTiempo])
+    return base.map((p) => {
+      let valor = p.maxKg ?? 0
+      if (modoMetrica === 'carrera_ritmo') {
+        valor = p.mejorRitmoSegKm ?? p.minSeg ?? 0
+      } else if (modoMetrica === 'tiempo') {
+        valor = p.maxSeg ?? 0
+      } else if (modoMetrica === 'reps') {
+        valor = p.maxReps ?? 0
+      }
+      return {
+        etiqueta: formatCorto(p.fecha),
+        valor,
+      }
+    })
+  }, [data, mesFiltro, modoMetrica])
 
   const sesionesFiltradas = useMemo(() => {
     const sesiones = data?.sesiones || []
@@ -158,10 +211,10 @@ export default function HistoricoModal({ ejercicio, onClose }) {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="text-[13px] font-semibold text-[#1E2433]">
-                      {esPorTiempo ? 'Tiempo (s)' : 'Peso (Kg)'}
+                      {metaGrafica.titulo}
                     </h3>
                     <p className="text-[11px] text-[#9CA3AF]">
-                      {esPorTiempo ? ' Duración máxima por día' : 'Peso máximo por día'}
+                      {metaGrafica.subtitulo}
                     </p>
                   </div>
                   <span className="w-7 h-7 rounded-full bg-[#FEF0E6] text-[#EE6B2F] flex items-center justify-center">
@@ -180,7 +233,7 @@ export default function HistoricoModal({ ejercicio, onClose }) {
                     data={puntosFiltrados}
                     dataKey="valor"
                     xKey="etiqueta"
-                    unit={esPorTiempo ? 's' : 'kg'}
+                    unit={metaGrafica.unidad}
                     height={185}
                   />
                 </Suspense>
@@ -196,9 +249,28 @@ export default function HistoricoModal({ ejercicio, onClose }) {
                   sesionesFiltradas.map((ses, idx) => {
                     const rowKey = `${ses.entreno_id}_${idx}`
                     const isOpen = Boolean(abiertos[rowKey] ?? idx === 0)
-                    const resumenMarca = esPorTiempo
-                      ? `${Math.max(0, ...(ses.series || []).map((s) => s.segundos || 0))} s`
-                      : `${ses.max_kg ?? 0} kg`
+                    const tipoReg =
+                      data?.ejercicio?.tipo_registro ||
+                      ejercicio?.tipo_registro ||
+                      'fuerza'
+                    let resumenMarca = `${ses.max_kg ?? 0} kg`
+                    if (modoMetrica === 'carrera_ritmo') {
+                      resumenMarca = ses.mejor_ritmo_seg_km
+                        ? `Mejor: ${formatRitmo(ses.mejor_ritmo_seg_km)}/km`
+                        : ses.min_seg
+                        ? formatDuracion(ses.min_seg)
+                        : `${ses.max_reps ?? 0}m`
+                    } else if (modoMetrica === 'tiempo') {
+                      resumenMarca = `${Math.max(
+                        0,
+                        ...(ses.series || []).map((s) => s.segundos || 0)
+                      )} s`
+                    } else if (modoMetrica === 'reps') {
+                      resumenMarca = `${Math.max(
+                        0,
+                        ...(ses.series || []).map((s) => s.reps || 0)
+                      )} reps`
+                    }
 
                     return (
                       <div
@@ -238,10 +310,7 @@ export default function HistoricoModal({ ejercicio, onClose }) {
                                     {sr.lado && sr.lado !== 'ambos' ? ` (${sr.lado})` : ''}
                                   </span>
                                   <span className="font-medium text-[#1E2433]">
-                                    {sr.peso_kg != null && sr.peso_kg > 0 ? `${sr.peso_kg} kg` : ''}
-                                    {sr.peso_kg > 0 && sr.reps != null ? ' × ' : ''}
-                                    {sr.reps != null ? `${sr.reps} reps` : ''}
-                                    {sr.segundos != null ? ` ${sr.segundos}s` : ''}
+                                    {formatearMarcaLogica(sr, tipoReg) || 'Completada'}
                                     {sr.rpe != null ? ` · RPE ${sr.rpe}` : ''}
                                   </span>
                                 </div>

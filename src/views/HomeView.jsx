@@ -10,6 +10,7 @@ import {
   Play,
   Sparkles,
   Flag,
+  ArrowUpDown,
 } from 'lucide-react'
 import { diasEntre, formatCorto, lunesDe, addDias } from '../../shared/fechas'
 import { getExercisePoster, GRUPO_LABELS } from '../lib/media'
@@ -169,20 +170,22 @@ export default function HomeView({
           </div>
         </div>
 
-        <div className="flex gap-2 pt-1">
+        <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
             onClick={() => onIrAgendaFecha?.('2026-11-16')}
-            className="flex-1 h-9 rounded-full bg-[#242938] text-white text-xs font-semibold flex items-center justify-center gap-1 hover:opacity-95 transition"
+            className="h-10 px-3 rounded-full bg-[#242938] text-white text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap hover:opacity-95 transition"
           >
-            Ver semana del 16 nov
+            <Calendar size={13} className="shrink-0" />
+            <span>Semana 16 nov</span>
           </button>
           <button
             type="button"
             onClick={() => onOpenReorganizarSemana?.('2026-11-16')}
-            className="h-9 px-3.5 rounded-full bg-white border border-[#D1D5DB] text-[#1E2433] text-xs font-semibold hover:bg-[#F5F5F7] transition"
+            className="h-10 px-3 rounded-full bg-white border border-[#D1D5DB] text-[#1E2433] text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap hover:bg-[#F5F5F7] transition"
           >
-            Reorganizar
+            <ArrowUpDown size={13} className="text-[#EE8641] shrink-0" />
+            <span>Mover días</span>
           </button>
         </div>
       </section>
@@ -386,23 +389,23 @@ export default function HomeView({
 
       {/* Tarjeta compacta: Estado de Rodilla & Próximo Objetivo */}
       <section>
-        <div className="flex items-baseline justify-between mb-2.5">
-          <h2 className="text-[23px] font-light text-[#1E2433] tracking-tight">
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <h2 className="text-[21px] font-light text-[#1E2433] tracking-tight truncate">
             Resumen semanal
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => onOpenReorganizarSemana?.(lunesActual)}
-              className="text-xs font-semibold text-[#EE6B2F] hover:underline"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] shadow-2xs hover:bg-[#F5F5F7] transition whitespace-nowrap"
             >
-              Reorganizar
+              <ArrowUpDown size={12} className="text-[#EE8641] shrink-0" />
+              <span>Mover días</span>
             </button>
-            <span className="text-[#CFD3DC]">·</span>
             <button
               type="button"
               onClick={onGoToRodilla}
-              className="text-xs text-[#6B7280] hover:text-[#1E2433]"
+              className="px-2.5 py-1.5 rounded-full text-[11.5px] font-medium text-[#6B7280] hover:text-[#1E2433] whitespace-nowrap"
             >
               Detalles
             </button>

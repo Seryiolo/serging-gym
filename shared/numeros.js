@@ -84,3 +84,133 @@ export function formatDescanso(segundos) {
   if (resto === 0) return `${m} min`
   return `${m}:${String(resto).padStart(2, '0')} min`
 }
+
+/**
+ * Convierte texto de tiempo ("3:55", "03:55", "1:05:20" o "45") a segundos totales.
+ * Devuelve entero >= 0 o null si no es válido.
+ */
+export function parseTiempoSegundos(valor) {
+  if (valor === null || valor === undefined || valor === '') return null
+  if (typeof valor === 'number') {
+    return Number.isFinite(valor) && valor >= 0 ? Math.round(valor) : null
+  }
+  const s = String(valor).trim()
+  if (!s) return null
+
+  if (s.includes(':')) {
+    const partes = s.split(':').map((p) => p.trim())
+    if (partes.length === 2) {
+      const min = parseEntero(partes[0])
+      const seg = parseEntero(partes[1])
+      if (min === null || seg === null || seg > 59) return null
+      return min * 60 + seg
+    }
+    if (partes.length === 3) {
+      const h = parseEntero(partes[0])
+      const min = parseEntero(partes[1])
+      const seg = parseEntero(partes[2])
+      if (h === null || min === null || seg === null || min > 59 || seg > 59) return null
+      return h * 3600 + min * 60 + seg
+    }
+    return null
+  }
+
+  const num = parseDecimal(s)
+  if (num === null || num < 0) return null
+  return Math.round(num)
+}
+
+/**
+ * Formatea segundos para un input editable:
+ * - Si >= 60s -> "m:ss" (ej. 235 -> "3:55")
+ * - Si < 60s  -> "45"
+ */
+export function formatSegundosInput(segundos, forzarMMSS = false) {
+  const n = Number(segundos)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const s = Math.round(n)
+  if (s >= 60 || forzarMMSS) {
+    return formatDuracion(s)
+  }
+  return String(s)
+}
+
+/**
+ * Extrae la distancia objetivo en metros de un ejercicio de carrera/series/drills
+ * a partir de su reps_obj (ej. "1000m @ Z4-Z5", "40 metros", "8k - 14k Z2") o su nombre.
+ */
+export function extraerDistanciaMetros(repsObj = '', nombreEj = '') {
+  const texto = `${repsObj || ''} ${nombreEj || ''}`.toLowerCase()
+
+  // Buscar patrón explícito en metros: "1000m", "2000 m", "400m", "40 metros", "80m"
+  const matchMetros = texto.match(/(\d{2,5})\s*(?:m|metros|mts)\b/)
+  if (matchMetros) {
+    return Number(matchMetros[1])
+  }
+
+  // Buscar patrón en kilómetros: "8k", "10 km", "5k"
+  const matchKm = texto.match(/(\d+(?:[.,]\d+)?)\s*(?:k|km|kilometros|kilómetros)\b/)
+  if (matchKm) {
+    const km = Number(matchKm[1].replace(',', '.'))
+    if (Number.isFinite(km) && km > 0) return Math.round(km * 1000)
+  }
+
+  // Si es trote suave regenerativo por minutos (ej. "10-12 min Z1"), estimar 2000m por defecto
+  if (texto.includes('min') && (texto.includes('trote') || texto.includes('z1') || texto.includes('z2'))) {
+    return 2000
+  }
+
+  return 1000
+}
+
+/**
+ * Formatea una marca registrada de forma lógica según el tipo de actividad:
+ * - carrera: "1000m en 3:52 (3:52/km)" o "40m en 6s"
+ * - isometrico / tiempo: "35 seg" o "35 seg · 10 kg"
+ * - movilidad: "8 reps" o "45 seg"
+ * - fuerza / pliometria: "60 kg × 8 reps" o "8 reps"
+ */
+export function formatearMarcaLogica(marca, tipoReg = 'fuerza') {
+  if (!marca) return null
+  const peso = marca.peso_kg != null && Number(marca.peso_kg) > 0 ? Number(marca.peso_kg) : null
+  const reps = marca.reps != null && Number(marca.reps) > 0 ? Number(marca.reps) : null
+  const seg = marca.segundos != null && Number(marca.segundos) > 0 ? Number(marca.segundos) : null
+
+  if (tipoReg === 'carrera') {
+    if (reps && seg) {
+      const distLabel =
+        reps >= 3000 && reps % 100 === 0
+          ? `${(reps / 1000).toFixed(reps % 1000 === 0 ? 0 : 1)} km`
+          : `${reps}m`
+      if (reps >= 200) {
+        const ritmo = ritmoSegKm(reps, seg)
+        return `${distLabel} en ${formatDuracion(seg)} (${formatRitmo(ritmo)}/km)`
+      }
+      return `${distLabel} en ${seg >= 60 ? formatDuracion(seg) : `${seg}s`}`
+    }
+    if (seg) return formatDuracion(seg)
+    if (reps) return `${reps >= 200 ? `${reps}m` : `${reps} reps`}`
+    return null
+  }
+
+  if (tipoReg === 'isometrico' || tipoReg === 'tiempo') {
+    const partes = []
+    if (seg) partes.push(`${seg} seg`)
+    if (peso) partes.push(`${peso} kg`)
+    if (!seg && reps) partes.push(`${reps} reps`)
+    return partes.length > 0 ? partes.join(' · ') : null
+  }
+
+  if (tipoReg === 'movilidad') {
+    const partes = []
+    if (reps) partes.push(`${reps} reps`)
+    if (seg) partes.push(`${seg} seg`)
+    return partes.length > 0 ? partes.join(' · ') : null
+  }
+
+  const partes = []
+  if (peso) partes.push(`${peso} kg`)
+  if (reps) partes.push(`${reps} reps`)
+  if (seg) partes.push(`${seg} seg`)
+  return partes.length > 0 ? partes.join(' × ') : null
+}

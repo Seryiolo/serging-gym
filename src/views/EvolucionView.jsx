@@ -1172,6 +1172,95 @@ export default function EvolucionView({
                 )}
               </div>
 
+              {/* Card Récords de Series en Pista e Isométricos */}
+              {mejoresMarcas?.seriesPista?.length > 0 && (
+                <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-full bg-[#E0F2FE] text-[#0284C7] flex items-center justify-center shrink-0">
+                      <Timer size={16} />
+                    </span>
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-[#1E2433]">
+                        Mejores Series en Pista
+                      </h3>
+                      <p className="text-[11px] text-[#6B7280]">
+                        Mejor tiempo y ritmo registrado en intervalos (1000m, 400m, 2000m)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-[#F1F3F6]">
+                    {mejoresMarcas.seriesPista.map((sp, i) => (
+                      <div
+                        key={`${sp.ejercicio_id}_${sp.distancia_m}_${i}`}
+                        className="py-2.5 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#1E2433] truncate">
+                            {sp.nombre} ({sp.distancia_m}m)
+                          </p>
+                          <p className="text-[11px] text-[#6B7280]">
+                            {sp.fecha ? formatCorto(sp.fecha) : ''} · {sp.total_series} series completadas
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[14px] font-bold text-[#0284C7] tabular-nums">
+                            {sp.mejor_tiempo_formato}
+                          </p>
+                          <p className="text-[11px] text-[#4B5563] tabular-nums">
+                            {sp.ritmo_formato}/km
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {mejoresMarcas?.isometricos?.length > 0 && (
+                <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                      <ShieldCheck size={16} />
+                    </span>
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-[#1E2433]">
+                        Isométricos y Estabilidad (Rodilla y Core)
+                      </h3>
+                      <p className="text-[11px] text-[#6B7280]">
+                        Mayor tiempo de contracción sostenida por serie
+                      </p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-[#F1F3F6]">
+                    {mejoresMarcas.isometricos.map((iso) => (
+                      <div
+                        key={iso.ejercicio_id}
+                        className="py-2.5 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#1E2433] truncate">
+                            {iso.nombre}
+                          </p>
+                          <p className="text-[11px] text-[#6B7280]">
+                            {iso.fecha ? formatCorto(iso.fecha) : ''}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[14px] font-bold text-emerald-700 tabular-nums">
+                            {iso.max_segundos} seg
+                          </span>
+                          {iso.peso_kg > 0 && (
+                            <span className="text-[11px] text-[#4B5563] ml-1">
+                              · {iso.peso_kg} kg
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Card Récords de Carrera */}
               <div className="bg-white rounded-2xl p-4 border border-[#ECEEF2] shadow-2xs space-y-3.5">
                 <div className="flex items-center justify-between">

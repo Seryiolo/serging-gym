@@ -12,13 +12,13 @@
 -- ============================================================================
 
 INSERT INTO plantillas_sesion (id, user_id, nombre, tipo, descripcion, activo) VALUES
-(1, NULL, 'Torso A - Empuje (Pecho, Hombro, Tríceps)', 'superior', 'Press pesado, deltoides, tríceps y bloque inicial de movilidad torácica + core.', 1),
-(2, NULL, 'Pierna ACL - Fuerza Unilateral y Pliometría', 'inferior', 'Salto controlado, fuerza unilateral de cuádriceps/rodilla e isométricos tendinosos.', 1),
-(3, NULL, 'Carrera Pista - Series e Intervalos', 'carrera', 'Técnica reactiva de carrera + series de calidad en pista según tus zonas de ritmo.', 1),
-(4, NULL, 'Torso B - Tracción (Espalda, Bíceps y Core)', 'superior', 'Dominadas, remos pesados, salud de hombro y transporte unilateral antirrotación.', 1),
-(5, NULL, 'Reatletización - Agilidad y Cadena Posterior', 'pliometria_agilidad', 'Cambios de dirección planificados, aterrizajes unipodales, RDL e isquiotibiales.', 1),
-(6, NULL, 'Carrera Continua - Rodaje Aeróbico + Core', 'carrera', 'Base aeróbica en Zona 2 seguida de trabajo breve de sóleo y estabilidad lumbopélvica.', 1),
-(7, NULL, 'Pierna B - Cadera, Isométricos y Core', 'inferior', 'Cadena posterior, isométricos analgésicos de rodilla/aductores y acarreos funcionales.', 1)
+(1, NULL, 'Torso A - Empuje (Gym · Pecho, Hombro, Tríceps)', 'superior', 'Sesión de gimnasio: movilidad torácica + core, press pesado, deltoides y tríceps.', 1),
+(2, NULL, 'Pierna ACL - Fuerza Unilateral y Cajón (Gym)', 'inferior', 'Sesión de gimnasio en espacio compacto: movilidad, reactividad en el sitio/cajón, fuerza pesada e isométricos.', 1),
+(3, NULL, 'Carrera Pista - Técnica y Series (Exterior)', 'carrera', 'Sesión en pista/parque sin pesas: drills reactivos de carrera + series cronometradas según tus zonas de ritmo.', 1),
+(4, NULL, 'Torso B - Tracción (Gym · Espalda, Bíceps y Core)', 'superior', 'Sesión de gimnasio: activación escapular, dominadas, remos pesados y transporte antirrotación.', 1),
+(5, NULL, 'Sesión Acc/Dec, Pliometría y COD (Exterior · Sin Pesas)', 'pliometria_agilidad', 'Sesión 100% de parque/pista sin material de gimnasio: drills dinámicos, saltos horizontales, aceleración/frenado y core.', 1),
+(6, NULL, 'Carrera Continua - Rodaje Z2 + Core (Exterior)', 'carrera', 'Base aeróbica en Zona 2 seguida de trabajo breve de sóleo e isométricos de core sin pesas.', 1),
+(7, NULL, 'Pierna B - Cadera, Potencia e Isométricos (Gym)', 'inferior', 'Sesión de gimnasio: cadena posterior con barra/mancuernas, potencia e isométricos analgésicos de rodilla.', 1)
 ON CONFLICT(id) DO UPDATE SET
   nombre = excluded.nombre,
   tipo = excluded.tipo,
@@ -43,11 +43,11 @@ INSERT INTO plantilla_bloques (id, plantilla_id, orden, nombre, tipo) VALUES
 (40, 4, 1, 'Activación escapular y cadera', 'preparacion'),
 (41, 4, 2, 'Fuerza de tracción principal', 'fuerza'),
 (42, 4, 3, 'Accesorios y core funcional', 'accesorios'),
--- 5. Reatletizacion y Agilidad
-(50, 5, 1, 'Movilidad dinámica de cadera', 'preparacion'),
-(51, 5, 2, 'Agilidad, frenado y COD', 'plyo'),
-(52, 5, 3, 'Cadena posterior y control unilateral', 'fuerza'),
-(53, 5, 4, ' Blindaje medial y core', 'accesorios'),
+-- 5. Reatletizacion y Agilidad (100% Exterior / Pista / Parque sin pesas)
+(50, 5, 1, 'Drills dinámicos en desplazamiento', 'preparacion'),
+(51, 5, 2, 'Aceleración, deceleración y COD', 'plyo'),
+(52, 5, 3, 'Pliometría horizontal y potencia corporal', 'fuerza'),
+(53, 5, 4, 'Blindaje medial y core (sin material)', 'accesorios'),
 -- 6. Carrera Continua
 (60, 6, 1, 'Rodaje continuo en Zona 2', 'carrera'),
 (61, 6, 2, 'Recordatorio de sóleo y core (10 min)', 'accesorios'),
@@ -100,14 +100,14 @@ VALUES
 (406, 42, 2, 'variable', 25, 'biceps', NULL, 'fuerza', 'semanal', 2, 3, '10-12', 8.5, 60, 'Flexión de codo con excéntrica de 3 segundos'),
 (407, 42, 3, 'variable', 92, 'core', NULL, NULL, 'semanal', NULL, 3, '30m por lado', 8.0, 60, 'Estabilidad lateral del tronco (Suitcase Carry / Core)'),
 
--- --- 5. REATLETIZACION, AGILIDAD Y CADENA POSTERIOR ---
-(501, 50, 1, 'variable', 79, 'movilidad', NULL, NULL, 'semanal', NULL, 2, '6+6', NULL, 45, 'Apertura activa de cadera y aductores'),
-(502, 51, 1, 'ancla', 43, NULL, NULL, NULL, 'nunca', NULL, 4, '4+4 pasadas', 7.5, 75, 'Cambios de dirección a 45° ganando confianza en el apoyo exterior'),
-(503, 51, 2, 'variable', 45, 'pliometria', NULL, 'fuerza', 'semanal', NULL, 3, '4+4 recepciones', 8.0, 75, 'Recepción unipodal clavando 2 segundos la estabilidad'),
-(504, 52, 1, 'ancla', 34, NULL, NULL, NULL, 'nunca', NULL, 4, '8-10', 8.5, 105, 'Peso muerto rumano con barra: ancla de cadena posterior'),
-(505, 52, 2, 'variable', 38, 'cuadriceps', NULL, 'fuerza', 'semanal', NULL, 3, '8+8', 8.0, 90, 'Sentadilla búlgara / variante unilateral pesada'),
-(506, 53, 1, 'ancla', 75, NULL, NULL, NULL, 'nunca', 2, 3, '25 seg/lado', 8.0, 45, 'Plancha Copenhague para aductores y estabilidad medial'),
-(507, 53, 2, 'variable', 83, 'core', NULL, NULL, 'semanal', 2, 3, '8+8', 7.5, 45, 'Control lumbopélvico antiextensión'),
+-- --- 5. SESION ACC/DEC, PLIOMETRIA Y COD (EXTERIOR SIN PESAS) ---
+(501, 50, 1, 'ancla', 125, 'movilidad', NULL, 'movilidad', 'nunca', 1, 2, '10m ida + 10m vuelta', NULL, 30, 'Walking leg cradles dinámicos en desplazamiento · sin material'),
+(502, 51, 1, 'ancla', 43, NULL, NULL, NULL, 'nunca', NULL, 4, '4+4 pasadas', 7.5, 75, 'Cambios de dirección a 45° y frenado controlado en exterior'),
+(503, 51, 2, 'variable', 128, 'agilidad', NULL, 'tiempo', 'semanal', NULL, 4, 'Ida y vuelta (15s)', 8.0, 75, 'Aceleración y deceleración reactiva en parque o pista'),
+(504, 52, 1, 'variable', 132, 'pliometria', NULL, 'fuerza', 'semanal', NULL, 3, '4-5 saltos', 8.0, 90, 'Salto horizontal / recepción unipodal amortiguando en silencio (sin pesas)'),
+(505, 52, 2, 'ancla', 60, 'isquios', NULL, 'fuerza', 'nunca', NULL, 3, '10+10 reps', 8.0, 75, 'Puente de glúteo e isquios unilateral en suelo o banco (0 material)'),
+(506, 53, 1, 'ancla', 75, NULL, NULL, NULL, 'nunca', 2, 3, '25 seg/lado', 8.0, 45, 'Plancha Copenhague en banco de parque o suelo para aductores'),
+(507, 53, 2, 'variable', 83, 'core', NULL, NULL, 'semanal', 2, 3, '8+8', 7.5, 45, 'Control lumbopélvico antiextensión sin material'),
 
 -- --- 6. CARRERA CONTINUA + CORE/SOLEO ---
 (601, 60, 1, 'ancla', 50, NULL, NULL, NULL, 'nunca', NULL, 1, '8k - 14k Z2', 6.5, 0, 'Rodaje aeróbico cómodo vigilando sensaciones de rodilla'),

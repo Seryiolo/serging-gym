@@ -6,7 +6,7 @@
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, sendJson, withErrorHandling } from './_lib/http.js'
 import { readBatch } from './_lib/turso.js'
-import { estimar1RM } from '../shared/numeros.js'
+import { estimar1RM, ritmoSegKm } from '../shared/numeros.js'
 
 export default withErrorHandling(async function ejercicioHistoricoHandler(req, res) {
   if (req.method !== 'GET') {
@@ -68,17 +68,27 @@ export default withErrorHandling(async function ejercicioHistoricoHandler(req, r
         sesion_titulo: row.sesion_titulo,
         max_kg: null,
         max_1rm: null,
+        max_reps: null,
+        max_seg: null,
+        min_seg: null,
+        mejor_ritmo_seg_km: null,
         series: [],
       })
     }
 
     const sesionEntry = sesionesMap.get(row.entreno_id)
+    const ritmoSerie =
+      ejercicio.tipo_registro === 'carrera' && row.reps >= 200 && row.segundos > 0
+        ? ritmoSegKm(row.reps, row.segundos)
+        : null
+
     sesionEntry.series.push({
       ronda: row.ronda,
       lado: row.lado,
       reps: row.reps,
       peso_kg: row.peso_kg,
       segundos: row.segundos,
+      ritmo_seg_km: ritmoSerie,
       rpe: row.rpe,
     })
 
@@ -94,6 +104,23 @@ export default withErrorHandling(async function ejercicioHistoricoHandler(req, r
     if (rmVal != null && (sesionEntry.max_1rm === null || rmVal > sesionEntry.max_1rm)) {
       sesionEntry.max_1rm = rmVal
     }
+    if (row.reps != null && (sesionEntry.max_reps === null || row.reps > sesionEntry.max_reps)) {
+      sesionEntry.max_reps = row.reps
+    }
+    if (row.segundos != null && row.segundos > 0) {
+      if (sesionEntry.max_seg === null || row.segundos > sesionEntry.max_seg) {
+        sesionEntry.max_seg = row.segundos
+      }
+      if (sesionEntry.min_seg === null || row.segundos < sesionEntry.min_seg) {
+        sesionEntry.min_seg = row.segundos
+      }
+    }
+    if (
+      ritmoSerie != null &&
+      (sesionEntry.mejor_ritmo_seg_km === null || ritmoSerie < sesionEntry.mejor_ritmo_seg_km)
+    ) {
+      sesionEntry.mejor_ritmo_seg_km = ritmoSerie
+    }
 
     if (!graficaPorFecha.has(row.fecha)) {
       graficaPorFecha.set(row.fecha, {
@@ -102,6 +129,8 @@ export default withErrorHandling(async function ejercicioHistoricoHandler(req, r
         max1RM: null,
         maxReps: null,
         maxSeg: null,
+        minSeg: null,
+        mejorRitmoSegKm: null,
       })
     }
     const punto = graficaPorFecha.get(row.fecha)
@@ -114,8 +143,19 @@ export default withErrorHandling(async function ejercicioHistoricoHandler(req, r
     if (row.reps != null && (punto.maxReps === null || row.reps > punto.maxReps)) {
       punto.maxReps = row.reps
     }
-    if (row.segundos != null && (punto.maxSeg === null || row.segundos > punto.maxSeg)) {
-      punto.maxSeg = row.segundos
+    if (row.segundos != null && row.segundos > 0) {
+      if (punto.maxSeg === null || row.segundos > punto.maxSeg) {
+        punto.maxSeg = row.segundos
+      }
+      if (punto.minSeg === null || row.segundos < punto.minSeg) {
+        punto.minSeg = row.segundos
+      }
+    }
+    if (
+      ritmoSerie != null &&
+      (punto.mejorRitmoSegKm === null || ritmoSerie < punto.mejorRitmoSegKm)
+    ) {
+      punto.mejorRitmoSegKm = ritmoSerie
     }
   }
 

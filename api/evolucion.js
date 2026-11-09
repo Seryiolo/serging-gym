@@ -9,7 +9,7 @@ import { methodNotAllowed, readJson, sendJson, withErrorHandling } from './_lib/
 import { batch, execute, query, queryOne, readBatch } from './_lib/turso.js'
 import { construirEstadoRodilla, evaluarRodillaUsuario } from './_lib/planner-db.js'
 import { addDias, esISO, hoyMadrid } from '../shared/fechas.js'
-import { parseDecimal, estimar1RM, formatRitmo, formatDuracion } from '../shared/numeros.js'
+import { parseDecimal, estimar1RM, formatRitmo, formatDuracion, ritmoSegKm } from '../shared/numeros.js'
 
 function calcularRachaRodillaSinDolor(entrenos) {
   let racha = 0
@@ -315,6 +315,8 @@ export default withErrorHandling(async function evolucionHandler(req, res) {
       totalesRows,
       mejoresFuerzaRows,
       ritmosRefRows,
+      mejoresIsometricosRows,
+      mejoresSeriesPistaRows,
     ] = await readBatch([
       {
         sql: 'SELECT id, fecha, kg FROM peso_corporal WHERE user_id = ? ORDER BY fecha ASC, id ASC',
@@ -429,6 +431,45 @@ export default withErrorHandling(async function evolucionHandler(req, res) {
               ORDER BY distancia_m ASC, fecha DESC`,
         args: [user.id],
       },
+      {
+        sql: `SELECT
+                sr.ejercicio_id,
+                e.nombre AS ejercicio_nombre,
+                e.grupo AS ejercicio_grupo,
+                MAX(sr.segundos) AS max_segundos,
+                MAX(COALESCE(sr.peso_kg, 0)) AS max_peso_kg,
+                substr(en.inicio, 1, 10) AS fecha_max
+              FROM series_registradas sr
+              JOIN entrenos en ON en.id = sr.entreno_id
+              JOIN ejercicios e ON e.id = sr.ejercicio_id
+              WHERE en.user_id = ?
+                AND sr.completada = 1
+                AND sr.segundos > 0
+                AND e.tipo_registro IN ('isometrico', 'tiempo')
+              GROUP BY sr.ejercicio_id
+              ORDER BY max_segundos DESC`,
+        args: [user.id],
+      },
+      {
+        sql: `SELECT
+                sr.ejercicio_id,
+                e.nombre AS ejercicio_nombre,
+                sr.reps AS distancia_m,
+                MIN(sr.segundos) AS mejor_segundos,
+                COUNT(*) AS total_series_completadas,
+                substr(en.inicio, 1, 10) AS fecha_mejor
+              FROM series_registradas sr
+              JOIN entrenos en ON en.id = sr.entreno_id
+              JOIN ejercicios e ON e.id = sr.ejercicio_id
+              WHERE en.user_id = ?
+                AND sr.completada = 1
+                AND e.tipo_registro = 'carrera'
+                AND sr.reps >= 200
+                AND sr.segundos > 0
+              GROUP BY sr.ejercicio_id, sr.reps
+              ORDER BY sr.reps ASC, mejor_segundos ASC`,
+        args: [user.id],
+      },
     ])
 
     const estadoBase = construirEstadoRodilla(rodillaRows[0], fasesRows, entrenosRecientes, hoy)
@@ -481,6 +522,30 @@ export default withErrorHandling(async function evolucionHandler(req, res) {
 
     const maxPesoGlobal = marcasFuerza.length > 0 ? Math.max(...marcasFuerza.map((m) => m.peso_kg)) : 0
 
+    const marcasIsometricos = (mejoresIsometricosRows || []).map((r) => ({
+      ejercicio_id: r.ejercicio_id,
+      nombre: r.ejercicio_nombre,
+      grupo: r.ejercicio_grupo,
+      max_segundos: r.max_segundos,
+      peso_kg: r.max_peso_kg > 0 ? r.max_peso_kg : null,
+      fecha: r.fecha_max,
+    }))
+
+    const marcasSeriesPista = (mejoresSeriesPistaRows || []).map((r) => {
+      const ritmo = ritmoSegKm(r.distancia_m, r.mejor_segundos)
+      return {
+        ejercicio_id: r.ejercicio_id,
+        nombre: r.ejercicio_nombre,
+        distancia_m: r.distancia_m,
+        mejor_segundos: r.mejor_segundos,
+        mejor_tiempo_formato: formatDuracion(r.mejor_segundos),
+        ritmo_seg_km: ritmo,
+        ritmo_formato: ritmo ? formatRitmo(ritmo) : '--:--',
+        total_series: r.total_series_completadas,
+        fecha: r.fecha_mejor,
+      }
+    })
+
     const distanciasClave = [
       { distancia_m: 1000, label: '1K Pista' },
       { distancia_m: 5000, label: '5K' },
@@ -494,17 +559,24 @@ export default withErrorHandling(async function evolucionHandler(req, res) {
       const car = (carrerasHistorial || [])
         .filter((c) => Math.abs((c.distancia_m || 0) - d.distancia_m) <= d.distancia_m * 0.05 && (c.ritmo_seg_km || 0) > 0)
         .sort((a, b) => (a.ritmo_seg_km || 999) - (b.ritmo_seg_km || 999))[0]
+      const serieExacta = marcasSeriesPista
+        .filter((s) => Math.abs((s.distancia_m || 0) - d.distancia_m) <= d.distancia_m * 0.05 && (s.ritmo_seg_km || 0) > 0)
+        .sort((a, b) => (a.ritmo_seg_km || 999) - (b.ritmo_seg_km || 999))[0]
 
-      const mejorRitmo = Math.min(ref?.ritmo_seg_km || 9999, car?.ritmo_seg_km || 9999)
-      const ritmoSegKm = mejorRitmo < 9000 ? mejorRitmo : null
-      const duracionS = ritmoSegKm ? Math.round((ritmoSegKm * d.distancia_m) / 1000) : null
-      const fecha = car?.fecha || ref?.fecha || null
+      const mejorRitmo = Math.min(
+        ref?.ritmo_seg_km || 9999,
+        car?.ritmo_seg_km || 9999,
+        serieExacta?.ritmo_seg_km || 9999,
+      )
+      const ritmoSegKmVal = mejorRitmo < 9000 ? mejorRitmo : null
+      const duracionS = ritmoSegKmVal ? Math.round((ritmoSegKmVal * d.distancia_m) / 1000) : null
+      const fecha = serieExacta?.fecha || car?.fecha || ref?.fecha || null
 
       return {
         distancia_m: d.distancia_m,
         label: d.label,
-        ritmo_seg_km: ritmoSegKm,
-        ritmo_formato: ritmoSegKm ? formatRitmo(ritmoSegKm) : '--:--',
+        ritmo_seg_km: ritmoSegKmVal,
+        ritmo_formato: ritmoSegKmVal ? formatRitmo(ritmoSegKmVal) : '--:--',
         duracion_s: duracionS,
         duracion_formato: duracionS ? formatDuracion(duracionS) : '--:--',
         tiempo_estimado_s: duracionS,
@@ -513,11 +585,15 @@ export default withErrorHandling(async function evolucionHandler(req, res) {
     })
 
     const tiradaMasLargaM = (carrerasHistorial || []).reduce((max, c) => Math.max(max, c.distancia_m || 0), 0)
-    const tieneSeriesPista = (carrerasHistorial || []).some((c) => c.tipo === 'series' || c.superficie === 'pista')
+    const tieneSeriesPista =
+      (carrerasHistorial || []).some((c) => c.tipo === 'series' || c.superficie === 'pista') ||
+      marcasSeriesPista.length > 0
     const respuestasSinHinchazon = (entrenosRecientes || []).filter((e) => e.hinchazon === 0).length
 
     const mejoresMarcas = {
       fuerza: marcasFuerza,
+      isometricos: marcasIsometricos,
+      seriesPista: marcasSeriesPista,
       carrera: marcasCarrera,
       maxPesoGlobal,
       tiradaMasLargaKm: Math.round((tiradaMasLargaM / 1000) * 10) / 10,

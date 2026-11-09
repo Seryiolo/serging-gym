@@ -18,7 +18,17 @@ import {
 import ExerciseThumb from '../components/ExerciseThumb'
 import Calculadora1RM from '../components/Calculadora1RM'
 import HistoricoModal from '../components/HistoricoModal'
-import { parseDecimal, parseEntero, formatDuracion, formatDescanso } from '../../shared/numeros'
+import {
+  parseDecimal,
+  parseEntero,
+  formatDuracion,
+  formatDescanso,
+  parseTiempoSegundos,
+  ritmoSegKm,
+  formatRitmo,
+  extraerDistanciaMetros,
+  formatearMarcaLogica,
+} from '../../shared/numeros'
 import { formatCorto } from '../../shared/fechas'
 import { playRestBeep } from '../lib/media'
 
@@ -228,7 +238,12 @@ export default function EntrenoActivoView({
             if (!s.completada) return
             const pesoKg = parseDecimal(s.pesoTexto)
             const repsNum = parseEntero(s.repsTexto)
-            const segNum = parseEntero(s.segTexto)
+            const segNum = parseTiempoSegundos(s.segTexto)
+
+            const distDefault =
+              tipoReg === 'carrera'
+                ? extraerDistanciaMetros(item.reps_obj, ej.nombre)
+                : 0
 
             seriesPayload.push({
               sesion_ejercicio_id: item.sesion_ejercicio_id || undefined,
@@ -236,12 +251,21 @@ export default function EntrenoActivoView({
               ronda: s.ronda || idx + 1,
               lado: s.lado || 'ambos',
               reps:
-                tipoReg === 'isometrico' || tipoReg === 'tiempo'
+                tipoReg === 'carrera'
+                  ? repsNum ?? distDefault
+                  : tipoReg === 'isometrico' || tipoReg === 'tiempo'
                   ? repsNum ?? undefined
                   : repsNum ?? 0,
-              peso_kg: pesoKg !== null ? pesoKg : undefined,
+              peso_kg:
+                tipoReg === 'carrera' || tipoReg === 'movilidad'
+                  ? undefined
+                  : pesoKg !== null
+                  ? pesoKg
+                  : undefined,
               segundos:
-                tipoReg === 'isometrico' || tipoReg === 'tiempo'
+                tipoReg === 'isometrico' ||
+                tipoReg === 'tiempo' ||
+                tipoReg === 'carrera'
                   ? segNum ?? 0
                   : segNum ?? undefined,
               rpe: item.rpe_obj ?? undefined,
@@ -563,14 +587,10 @@ export default function EntrenoActivoView({
                                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FEF4EC] text-[#B8571D] text-[11.5px] font-medium">
                                   <span>
                                     Última vez:{' '}
-                                    {item.ultima_marca.peso_kg
-                                      ? `${item.ultima_marca.peso_kg} kg × `
-                                      : ''}
-                                    {item.ultima_marca.reps
-                                      ? `${item.ultima_marca.reps} reps`
-                                      : item.ultima_marca.segundos
-                                      ? `${item.ultima_marca.segundos}s`
-                                      : ''}{' '}
+                                    {formatearMarcaLogica(
+                                      item.ultima_marca,
+                                      tipoReg
+                                    )}{' '}
                                     ({formatCorto(item.ultima_marca.fecha)})
                                   </span>
                                 </div>
@@ -637,18 +657,46 @@ export default function EntrenoActivoView({
                               </button>
                             </div>
 
-                            {/* Tabla desplegable de inserción de marcas (sheet_2.jpg arriba-dcha) */}
+                            {/* Tabla desplegable de inserción de marcas adaptada de forma lógica a la actividad */}
                             {marcasAbiertas && (
                               <div className="mt-4 pt-3 border-t border-[#ECEEF2] space-y-2">
-                                <div className="grid grid-cols-12 gap-2 px-1 text-[11px] text-[#9CA3AF] font-normal">
-                                  <span className="col-span-2">Ronda</span>
-                                  {tipoReg === 'isometrico' || tipoReg === 'tiempo' ? (
+                                {tipoReg === 'carrera' && (
+                                  <p className="text-[11px] text-[#6B7280] bg-[#F8F9FB] rounded-xl px-2.5 py-1.5">
+                                    Introduce la <strong>distancia (m)</strong> y el{' '}
+                                    <strong>tiempo (mm:ss o seg)</strong> de cada serie (ej.{' '}
+                                    <code>1000</code> m y <code>3:52</code>). El ritmo{' '}
+                                    <code>/km</code> se calcula solo y cuenta para tu progresión.
+                                  </p>
+                                )}
+
+                                <div className="grid grid-cols-12 gap-1.5 px-1 text-[11px] text-[#9CA3AF] font-medium">
+                                  <span className="col-span-2">Serie</span>
+                                  {tipoReg === 'carrera' ? (
                                     <>
-                                      <span className="col-span-4">Segundos</span>
-                                      <span className="col-span-4">Peso (kg)</span>
+                                      <span className="col-span-3">Metros</span>
+                                      <span className="col-span-3">Tiempo</span>
+                                      <span className="col-span-2 text-center">Ritmo</span>
                                     </>
-                                  ) : tipoReg === 'movilidad' || tipoReg === 'carrera' ? (
-                                    <span className="col-span-8">Repeticiones</span>
+                                  ) : tipoReg === 'isometrico' || tipoReg === 'tiempo' ? (
+                                    <>
+                                      <span className="col-span-4">Tiempo (seg)</span>
+                                      <span className="col-span-4">Lastre (kg)</span>
+                                    </>
+                                  ) : tipoReg === 'movilidad' ? (
+                                    <>
+                                      <span className="col-span-4">Reps / Lado</span>
+                                      <span className="col-span-4">Segundos (opc.)</span>
+                                    </>
+                                  ) : ej.grupo === 'pliometria' || ej.grupo === 'agilidad' ? (
+                                    <>
+                                      <span className="col-span-4">Saltos / Reps</span>
+                                      <span className="col-span-4">
+                                        {String(ej.equipamiento || '').includes('barra') ||
+                                        String(ej.equipamiento || '').includes('mancuerna')
+                                          ? 'Carga (kg)'
+                                          : 'Tiempo (seg)'}
+                                      </span>
+                                    </>
                                   ) : (
                                     <>
                                       <span className="col-span-4">Repeticiones</span>
@@ -658,130 +706,271 @@ export default function EntrenoActivoView({
                                   <span className="col-span-2 text-right">OK</span>
                                 </div>
 
-                                {series.map((s, sIdx) => (
-                                  <div
-                                    key={`${itemKey}_r_${sIdx}`}
-                                    className={`grid grid-cols-12 gap-2 items-center py-1.5 px-1.5 rounded-xl transition ${
-                                      s.completada ? 'bg-emerald-50/60' : ''
-                                    }`}
-                                  >
-                                    <div className="col-span-2 flex flex-col">
-                                      <span className="text-xs font-medium text-[#1E2433] pl-1">
-                                        {s.ronda}
-                                      </span>
-                                      {ej.unilateral === 1 && (
-                                        <span className="text-[9.5px] text-[#9CA3AF] pl-1">
-                                          I+D
+                                {series.map((s, sIdx) => {
+                                  const distM = parseEntero(s.repsTexto)
+                                  const segS = parseTiempoSegundos(s.segTexto)
+                                  const ritmoSerie =
+                                    tipoReg === 'carrera' && distM >= 200 && segS > 0
+                                      ? ritmoSegKm(distM, segS)
+                                      : null
+                                  const usaCargaPlyo =
+                                    String(ej.equipamiento || '').includes('barra') ||
+                                    String(ej.equipamiento || '').includes('mancuerna')
+
+                                  return (
+                                    <div
+                                      key={`${itemKey}_r_${sIdx}`}
+                                      className={`grid grid-cols-12 gap-1.5 items-center py-1.5 px-1.5 rounded-xl transition ${
+                                        s.completada ? 'bg-emerald-50/60' : ''
+                                      }`}
+                                    >
+                                      <div className="col-span-2 flex flex-col">
+                                        <span className="text-xs font-medium text-[#1E2433] pl-1">
+                                          #{s.ronda}
                                         </span>
+                                        {ej.unilateral === 1 && (
+                                          <span className="text-[9.5px] text-[#9CA3AF] pl-1">
+                                            I+D
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {tipoReg === 'carrera' ? (
+                                        <>
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="1000"
+                                            value={s.repsTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'repsTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-3 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <input
+                                            type="text"
+                                            placeholder={
+                                              (distM || 1000) >= 200 ? '3:55' : '8s'
+                                            }
+                                            value={s.segTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'segTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-3 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <div className="col-span-2 flex justify-center">
+                                            {ritmoSerie ? (
+                                              <span className="px-1.5 py-0.5 rounded-md bg-[#E0F2FE] text-[#0369A1] text-[10.5px] font-bold tabular-nums whitespace-nowrap">
+                                                {formatRitmo(ritmoSerie)}/km
+                                              </span>
+                                            ) : segS > 0 && distM > 0 && distM < 200 ? (
+                                              <span className="px-1.5 py-0.5 rounded-md bg-[#F3F4F6] text-[#374151] text-[10.5px] font-semibold tabular-nums">
+                                                {segS}s
+                                              </span>
+                                            ) : (
+                                              <span className="text-[11px] text-[#9CA3AF] tabular-nums">
+                                                --:--
+                                              </span>
+                                            )}
+                                          </div>
+                                        </>
+                                      ) : tipoReg === 'isometrico' || tipoReg === 'tiempo' ? (
+                                        <>
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="30"
+                                            value={s.segTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'segTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="0"
+                                            value={s.pesoTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'pesoTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                        </>
+                                      ) : tipoReg === 'movilidad' ? (
+                                        <>
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="8"
+                                            value={s.repsTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'repsTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="opc."
+                                            value={s.segTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'segTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                        </>
+                                      ) : ej.grupo === 'pliometria' || ej.grupo === 'agilidad' ? (
+                                        <>
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="5"
+                                            value={s.repsTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'repsTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode={usaCargaPlyo ? 'decimal' : 'numeric'}
+                                            placeholder={usaCargaPlyo ? '0 kg' : 'seg (opc)'}
+                                            value={usaCargaPlyo ? s.pesoTexto : s.segTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                usaCargaPlyo ? 'pesoTexto' : 'segTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder="0"
+                                            value={s.repsTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'repsTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            placeholder="0"
+                                            value={s.pesoTexto}
+                                            onChange={(e) =>
+                                              actualizarSerie(
+                                                itemKey,
+                                                sIdx,
+                                                'pesoTexto',
+                                                e.target.value
+                                              )
+                                            }
+                                            className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433] tabular-nums"
+                                          />
+                                        </>
                                       )}
-                                    </div>
 
-                                    {tipoReg === 'isometrico' || tipoReg === 'tiempo' ? (
-                                      <>
-                                        <input
-                                          type="text"
-                                          inputMode="numeric"
-                                          placeholder="30"
-                                          value={s.segTexto}
-                                          onChange={(e) =>
-                                            actualizarSerie(
+                                      <div className="col-span-2 flex justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            toggleSerieCompletada(
                                               itemKey,
                                               sIdx,
-                                              'segTexto',
-                                              e.target.value
+                                              descansoS
                                             )
                                           }
-                                          className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433]"
-                                        />
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          placeholder="0"
-                                          value={s.pesoTexto}
-                                          onChange={(e) =>
-                                            actualizarSerie(
-                                              itemKey,
-                                              sIdx,
-                                              'pesoTexto',
-                                              e.target.value
-                                            )
-                                          }
-                                          className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433]"
-                                        />
-                                      </>
-                                    ) : tipoReg === 'movilidad' || tipoReg === 'carrera' ? (
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        placeholder="8"
-                                        value={s.repsTexto}
-                                        onChange={(e) =>
-                                          actualizarSerie(
-                                            itemKey,
-                                            sIdx,
-                                            'repsTexto',
-                                            e.target.value
-                                          )
-                                        }
-                                        className="col-span-8 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433]"
-                                      />
-                                    ) : (
-                                      <>
-                                        <input
-                                          type="text"
-                                          inputMode="numeric"
-                                          placeholder="0"
-                                          value={s.repsTexto}
-                                          onChange={(e) =>
-                                            actualizarSerie(
-                                              itemKey,
-                                              sIdx,
-                                              'repsTexto',
-                                              e.target.value
-                                            )
-                                          }
-                                          className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433]"
-                                        />
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          placeholder="0"
-                                          value={s.pesoTexto}
-                                          onChange={(e) =>
-                                            actualizarSerie(
-                                              itemKey,
-                                              sIdx,
-                                              'pesoTexto',
-                                              e.target.value
-                                            )
-                                          }
-                                          className="col-span-4 h-9 border-b border-[#D1D5DB] bg-transparent px-1 text-sm text-[#1E2433] focus:outline-none focus:border-[#1E2433]"
-                                        />
-                                      </>
-                                    )}
-
-                                    <div className="col-span-2 flex justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          toggleSerieCompletada(
-                                            itemKey,
-                                            sIdx,
-                                            descansoS
-                                          )
-                                        }
-                                        className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${
-                                          s.completada
-                                            ? 'bg-[#242938] border-[#242938] text-white'
-                                            : 'bg-white border-[#9CA3AF] text-[#6B7280]'
-                                        }`}
-                                        aria-label={`Completar ronda ${s.ronda}`}
-                                      >
-                                        <Check size={14} strokeWidth={2} />
-                                      </button>
+                                          className={`w-8 h-8 rounded-full border flex items-center justify-center transition ${
+                                            s.completada
+                                              ? 'bg-[#242938] border-[#242938] text-white'
+                                              : 'bg-white border-[#9CA3AF] text-[#6B7280]'
+                                          }`}
+                                          aria-label={`Completar ronda ${s.ronda}`}
+                                        >
+                                          <Check size={14} strokeWidth={2} />
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  )
+                                })}
+
+                                {/* Resumen en vivo cuando se anotan series de carrera */}
+                                {tipoReg === 'carrera' &&
+                                  (() => {
+                                    const validas = series
+                                      .map((sr) => ({
+                                        m: parseEntero(sr.repsTexto),
+                                        s: parseTiempoSegundos(sr.segTexto),
+                                      }))
+                                      .filter((x) => x.m >= 200 && x.s > 0)
+                                    if (validas.length === 0) return null
+                                    const totalM = validas.reduce((a, b) => a + b.m, 0)
+                                    const totalS = validas.reduce((a, b) => a + b.s, 0)
+                                    const ritmoMedio = ritmoSegKm(totalM, totalS)
+                                    const mejorRitmo = Math.min(
+                                      ...validas.map((x) => ritmoSegKm(x.m, x.s))
+                                    )
+                                    return (
+                                      <div className="mt-2 px-3 py-2 rounded-xl bg-[#E0F2FE]/65 border border-[#BAE6FD] flex items-center justify-between text-[11.5px] text-[#0C4A6E]">
+                                        <span>
+                                          <strong>{validas.length} series</strong> ·{' '}
+                                          {(totalM / 1000).toFixed(2)} km
+                                        </span>
+                                        <span className="tabular-nums">
+                                          Media: <strong>{formatRitmo(ritmoMedio)}/km</strong> ·
+                                          Mejor: <strong>{formatRitmo(mejorRitmo)}/km</strong>
+                                        </span>
+                                      </div>
+                                    )
+                                  })()}
 
                                 <button
                                   type="button"

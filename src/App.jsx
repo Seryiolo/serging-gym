@@ -24,7 +24,11 @@ import {
   crearEjercicio,
 } from './lib/api'
 import { hoyMadrid, lunesDe, addDias } from '../shared/fechas'
-import { formatDuracion } from '../shared/numeros'
+import {
+  formatDuracion,
+  extraerDistanciaMetros,
+  formatSegundosInput,
+} from '../shared/numeros'
 
 import Header from './components/Header'
 import BottomNav from './components/BottomNav'
@@ -62,22 +66,55 @@ function construirEstadoEntrenoInicial({ sesion, bloques = [] }) {
       const totalSeries = Math.max(1, Number(item.series_obj) || 3)
       const tipoReg = item.ejercicio?.tipo_registro || 'fuerza'
       const ultima = item.ultima_marca || null
+      const repsObjTexto = String(item.reps_obj || '').toLowerCase()
 
-      const esPorTiempo = tipoReg === 'isometrico' || tipoReg === 'tiempo'
-      const defaultSeg = esPorTiempo
-        ? ultima?.segundos
+      let defaultReps = ''
+      let defaultPeso = ''
+      let defaultSeg = ''
+
+      if (tipoReg === 'carrera') {
+        const distM =
+          ultima?.reps && Number(ultima.reps) >= 20
+            ? Number(ultima.reps)
+            : extraerDistanciaMetros(item.reps_obj, item.ejercicio?.nombre)
+        defaultReps = String(distM)
+        defaultSeg = ultima?.segundos
+          ? formatSegundosInput(ultima.segundos, distM >= 200)
+          : ''
+      } else if (tipoReg === 'isometrico' || tipoReg === 'tiempo') {
+        defaultSeg = ultima?.segundos
           ? String(ultima.segundos)
           : extraerNumeroObjetivo(item.reps_obj, '30')
-        : ''
-      const defaultReps = !esPorTiempo
-        ? ultima?.reps
+        defaultPeso =
+          ultima?.peso_kg !== null &&
+          ultima?.peso_kg !== undefined &&
+          Number(ultima.peso_kg) > 0
+            ? String(ultima.peso_kg)
+            : ''
+      } else if (tipoReg === 'movilidad') {
+        const mideSegundos = repsObjTexto.includes('seg')
+        defaultReps = ultima?.reps
+          ? String(ultima.reps)
+          : mideSegundos
+          ? ''
+          : extraerNumeroObjetivo(item.reps_obj, '8')
+        defaultSeg = ultima?.segundos
+          ? String(ultima.segundos)
+          : mideSegundos
+          ? extraerNumeroObjetivo(item.reps_obj, '30')
+          : ''
+      } else {
+        defaultReps = ultima?.reps
           ? String(ultima.reps)
           : extraerNumeroObjetivo(item.reps_obj, '8')
-        : ''
-      const defaultPeso =
-        ultima?.peso_kg !== null && ultima?.peso_kg !== undefined
-          ? String(ultima.peso_kg)
-          : ''
+        defaultPeso =
+          ultima?.peso_kg !== null &&
+          ultima?.peso_kg !== undefined &&
+          Number(ultima.peso_kg) > 0
+            ? String(ultima.peso_kg)
+            : ''
+        defaultSeg = ultima?.segundos ? String(ultima.segundos) : ''
+      }
 
       seriesPorItem[itemKey] = Array.from({ length: totalSeries }, (_, idx) => ({
         ronda: idx + 1,
@@ -597,6 +634,9 @@ export default function App() {
             onDiscardWorkout={handleDiscardWorkout}
             onOpenVideo={handleOpenVideo}
             onOpenCarreraModal={(sesionPlan) => setCarreraModalCtx(sesionPlan)}
+            onOpenReorganizarSemana={(fechaSesion) =>
+              setReorganizarSemanaLunes(lunesDe(fechaSesion || fechaAgenda))
+            }
             onSessionUpdated={() =>
               cargarDatosPrincipales({
                 mes: fechaAgenda.slice(0, 7),

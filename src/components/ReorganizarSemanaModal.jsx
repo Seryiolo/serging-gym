@@ -135,24 +135,24 @@ export default function ReorganizarSemanaModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-[#1E2433]/45 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white w-full max-w-[460px] rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl max-h-[92dvh] flex flex-col">
+      <div className="bg-white w-full max-w-[460px] rounded-t-3xl sm:rounded-3xl px-4 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6 shadow-2xl max-h-[90dvh] flex flex-col">
         {/* Encabezado */}
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div>
+        <div className="flex items-start justify-between gap-3 mb-2.5">
+          <div className="min-w-0">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#EE8641]">
               <ArrowUpDown size={13} /> Horario y calendario
             </span>
-            <h3 className="text-[22px] font-light text-[#1E2433] leading-tight mt-0.5">
-              Reorganizar semana
+            <h3 className="text-[20px] font-light text-[#1E2433] leading-tight mt-0.5">
+              Mover días de entrenamiento
             </h3>
             <p className="text-xs text-[#6B7280] mt-0.5">
-              Semana del {formatCorto(lunes)} · Toca dos días para intercambiar sus entrenamientos
+              Semana del {formatCorto(lunes)} · Toca dos días para intercambiarlos
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#4B5563] hover:text-[#1E2433]"
+            className="w-8 h-8 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#4B5563] hover:text-[#1E2433] shrink-0"
             aria-label="Cerrar modal"
           >
             <X size={18} />
@@ -160,24 +160,24 @@ export default function ReorganizarSemanaModal({
         </div>
 
         {/* Guía interactiva */}
-        <div className="bg-[#F5F5F7] rounded-2xl p-3 text-xs text-[#4B5563] mb-3 flex items-center justify-between">
-          <span>
+        <div className="bg-[#F5F5F7] rounded-2xl p-2.5 text-xs text-[#4B5563] mb-2.5 flex items-center justify-between gap-2">
+          <span className="leading-snug">
             {origenSeleccionado ? (
               <strong className="text-[#EE6B2F]">
                 Toca ahora el día de destino para mover o intercambiar la sesión
               </strong>
             ) : (
-              'Pulsa cualquier sesión para seleccionarla y luego pulsa otro día'
+              '1. Toca el día que quieres mover · 2. Toca el día de destino'
             )}
           </span>
           {cambiosPendientes.length > 0 && (
             <button
               type="button"
               onClick={handleRestablecer}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#6B7280] hover:text-[#1E2433] shrink-0 ml-2"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-[#D8DCE3] text-[11px] font-semibold text-[#1E2433] shrink-0 whitespace-nowrap"
               title="Restablecer posiciones originales"
             >
-              <RotateCcw size={12} /> Deshacer
+              <RotateCcw size={11} /> Deshacer
             </button>
           )}
         </div>
@@ -270,17 +270,24 @@ export default function ReorganizarSemanaModal({
                 </div>
 
                 {/* Acción a la derecha */}
-                <div className="shrink-0">
+                <div className="shrink-0 ml-1">
                   {esSeleccionado ? (
-                    <span className="text-[11px] font-semibold text-[#EE6B2F] bg-white px-2.5 py-1 rounded-full border border-[#EE8641]">
-                      Mover...
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#EE6B2F] bg-white px-2.5 py-1 rounded-full border border-[#EE8641] whitespace-nowrap">
+                      Elegir destino
                     </span>
                   ) : haCambiado ? (
-                    <span className="text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      Reubicado
+                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full whitespace-nowrap">
+                      Movido
                     </span>
                   ) : sesion ? (
-                    <ArrowUpDown size={15} className="text-[#9CA3AF]" />
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#4B5563] bg-[#F5F5F7] px-2.5 py-1 rounded-full whitespace-nowrap">
+                      <ArrowUpDown size={12} className="text-[#EE8641]" />
+                      Mover
+                    </span>
+                  ) : origenSeleccionado ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#242938] bg-[#F5F5F7] px-2.5 py-1 rounded-full whitespace-nowrap">
+                      Poner aquí
+                    </span>
                   ) : null}
                 </div>
               </button>

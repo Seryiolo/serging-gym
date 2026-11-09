@@ -8,7 +8,7 @@ import { getQuery, methodNotAllowed, readJson, sendJson, withErrorHandling } fro
 import { batch, execute, queryOne, readBatch } from './_lib/turso.js'
 import { candidatosSustitucion, evaluarRodillaUsuario } from './_lib/planner-db.js'
 import { hoyMadrid, TZ } from '../shared/fechas.js'
-import { parseDecimal } from '../shared/numeros.js'
+import { parseDecimal, formatDuracion, formatRitmo, ritmoSegKm } from '../shared/numeros.js'
 
 function ahoraMadridISO(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -338,6 +338,73 @@ export default withErrorHandling(async function sesionHandler(req, res) {
         sql: `UPDATE sesiones_plan SET estado = 'completada' WHERE id = ? AND user_id = ?`,
         args: [validSesionPlanId, user.id],
       })
+    }
+
+    // Si hay series completadas de ejercicios de tipo 'carrera' con distancia (reps >= 200m) y tiempo (segundos > 0),
+    // sincronizar automáticamente un registro en la tabla `carreras` para que sume km, ritmos y gráficas.
+    const ejIdsUnicos = Array.from(new Set(seriesLimpias.map((s) => s.ejId)))
+    if (ejIdsUnicos.length > 0) {
+      const placeholders = ejIdsUnicos.map(() => '?').join(',')
+      const [ejCarreraRows] = await readBatch([
+        {
+          sql: `SELECT id, nombre, tipo_registro FROM ejercicios WHERE id IN (${placeholders})`,
+          args: ejIdsUnicos,
+        },
+      ])
+      const idsTipoCarrera = new Set(
+        (ejCarreraRows || [])
+          .filter((e) => e.tipo_registro === 'carrera')
+          .map((e) => e.id),
+      )
+
+      const seriesCarreraValidas = seriesLimpias.filter(
+        (s) =>
+          s.completada === 1 &&
+          idsTipoCarrera.has(s.ejId) &&
+          Number(s.reps) >= 200 &&
+          Number(s.segundos) > 0,
+      )
+
+      if (seriesCarreraValidas.length > 0) {
+        const distanciaTotalM = seriesCarreraValidas.reduce((acc, s) => acc + Number(s.reps), 0)
+        const duracionTotalS = seriesCarreraValidas.reduce((acc, s) => acc + Number(s.segundos), 0)
+        const sonIntervalosPista =
+          seriesCarreraValidas.length >= 2 ||
+          seriesCarreraValidas.some((s) => Number(s.reps) <= 3000)
+        const tipoCarrera = sonIntervalosPista ? 'series' : 'rodaje'
+        const superficie = sonIntervalosPista ? 'pista' : 'asfalto'
+        const molestiaMax =
+          molestiaDurante !== null || molestiaDespues !== null
+            ? Math.max(molestiaDurante ?? 0, molestiaDespues ?? 0)
+            : null
+
+        const desgloseSeries = seriesCarreraValidas
+          .map((s, idx) => {
+            const r = ritmoSegKm(s.reps, s.segundos)
+            return `#${idx + 1} ${s.reps}m en ${formatDuracion(s.segundos)} (${formatRitmo(r)}/km)`
+          })
+          .join(' · ')
+
+        stmts.push({
+          sql: `INSERT INTO carreras (
+                  entreno_id, tipo, distancia_m, duracion_s,
+                  superficie, molestia_rodilla, series_detalle, nota
+                ) VALUES (
+                  (SELECT MAX(id) FROM entrenos WHERE user_id = ?),
+                  ?, ?, ?, ?, ?, ?, ?
+                )`,
+          args: [
+            user.id,
+            tipoCarrera,
+            distanciaTotalM,
+            duracionTotalS,
+            superficie,
+            molestiaMax,
+            desgloseSeries,
+            nota,
+          ],
+        })
+      }
     }
 
     const results = await batch(stmts)

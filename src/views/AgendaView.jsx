@@ -192,26 +192,27 @@ export default function AgendaView({
   return (
     <div className="px-4 pb-32 pt-1 space-y-5">
       {/* Cabecera "Agenda" idéntica a f_022.jpg y sheet_3.jpg */}
-      <div className="flex items-center justify-between pt-1">
-        <h1 className="text-[32px] font-light tracking-tight text-[#1E2433] leading-none">
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <h1 className="text-[30px] font-light tracking-tight text-[#1E2433] leading-none">
           Agenda
         </h1>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => onOpenReorganizarSemana?.(lunesActualVista)}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-[#1E2433]/80 hover:bg-white/70 transition"
-            title="Reorganizar semana (intercambiar días)"
-            aria-label="Reorganizar semana"
+            className="h-9 px-3.5 rounded-full bg-white border border-[#D8DCE3] shadow-2xs flex items-center justify-center gap-1.5 text-xs font-semibold text-[#1E2433] hover:bg-[#F5F5F7] transition whitespace-nowrap"
+            title="Reorganizar semana (intercambiar días de entrenamiento)"
+            aria-label="Mover días de entrenamiento"
           >
-            <ArrowUpDown size={19} strokeWidth={1.6} />
+            <ArrowUpDown size={14} className="text-[#EE8641] shrink-0" />
+            <span>Mover días</span>
           </button>
           <button
             type="button"
             onClick={() =>
               setModoVista((m) => (m === 'semanal' ? 'mensual' : 'semanal'))
             }
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-[#1E2433]/80 hover:bg-white/70 transition"
+            className="w-9 h-9 rounded-xl bg-white/80 border border-[#ECEEF2] flex items-center justify-center text-[#1E2433]/85 hover:bg-white transition shrink-0"
             title={
               modoVista === 'semanal'
                 ? 'Cambiar a calendario mensual'
@@ -222,7 +223,7 @@ export default function AgendaView({
             {modoVista === 'semanal' ? (
               <Calendar31ToggleIcon />
             ) : (
-              <List size={21} strokeWidth={1.6} />
+              <List size={20} strokeWidth={1.6} />
             )}
           </button>
         </div>

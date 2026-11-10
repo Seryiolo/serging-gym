@@ -4,7 +4,7 @@
  */
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, sendJson, withErrorHandling } from './_lib/http.js'
-import { queryOne, readBatch } from './_lib/turso.js'
+import { readBatch } from './_lib/turso.js'
 import { construirEstadoRodilla, generarSemanaPlan } from './_lib/planner-db.js'
 import { addDias, esISO, hoyMadrid, lunesDe } from '../shared/fechas.js'
 
@@ -18,25 +18,6 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
 
   const user = await requireUser(req, res)
   if (!user) return
-
-  // Asegurar que la semana del 16 de noviembre está generada para el usuario
-  try {
-    const semanaInicioExistente = await queryOne(
-      'SELECT id FROM semanas WHERE user_id = ? AND lunes = ? LIMIT 1',
-      [user.id, LUNES_INICIO_ENTRENO],
-    )
-    if (!semanaInicioExistente) {
-      await generarSemanaPlan(user.id, {
-        lunes: LUNES_INICIO_ENTRENO,
-        dias: 5,
-        hayCarrera: false,
-        segundoSuperior: false,
-        sobreescribir: false,
-      })
-    }
-  } catch {
-    // Continuar con bootstrap normal si ya existiera o hubo error concurrente
-  }
 
   const q = getQuery(req)
   const hoy = hoyMadrid()
@@ -62,7 +43,7 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
   const finSemanaInicio = addDias(LUNES_INICIO_ENTRENO, 7)
   if (hastaMes < finSemanaInicio) hastaMes = finSemanaInicio
 
-  const [
+  let [
     perfilRows,
     rodillaRows,
     fasesRows,
@@ -74,6 +55,7 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
     ultimoPesoRows,
     videosDestacados,
     entrenosSemanaRows,
+    semanaInicioRows,
   ] = await readBatch([
     {
       sql: 'SELECT objetivo, dias_min, dias_max, notas FROM perfil WHERE user_id = ? LIMIT 1',
@@ -82,7 +64,7 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
     {
       sql: `SELECT er.fase_id, er.desde, er.modo_auto,
                    fr.nombre, fr.descripcion, fr.impacto_max,
-                   fr.sesiones_para_subir, fr.molestia_max_subir, fr.molestia_min_bajar
+                   fr.sesiones_para_subir, molestia_max_subir, fr.molestia_min_bajar
             FROM estado_rodilla er
             JOIN fases_rodilla fr ON fr.id = er.fase_id
             WHERE er.user_id = ? LIMIT 1`,
@@ -164,7 +146,31 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
             WHERE user_id = ? AND substr(inicio, 1, 10) >= ? AND substr(inicio, 1, 10) <= ?`,
       args: [user.id, lunesResumen, domingoResumen],
     },
+    {
+      sql: 'SELECT id FROM semanas WHERE user_id = ? AND lunes = ? LIMIT 1',
+      args: [user.id, LUNES_INICIO_ENTRENO],
+    },
   ])
+
+  // Si es la primera vez absoluta y aún no existe la semana del 16 de noviembre, generarla
+  if (!semanaInicioRows || semanaInicioRows.length === 0) {
+    try {
+      const gen = await generarSemanaPlan(user.id, {
+        lunes: LUNES_INICIO_ENTRENO,
+        dias: 5,
+        hayCarrera: false,
+        segundoSuperior: false,
+        sobreescribir: false,
+      })
+      if (gen?.sesiones?.length) {
+        sesionesMes = [...sesionesMes, ...gen.sesiones].sort((a, b) =>
+          String(a.fecha).localeCompare(String(b.fecha))
+        )
+      }
+    } catch {
+      // Continuar con bootstrap normal
+    }
+  }
 
   const perfil = perfilRows[0] || {
     objetivo: 'Fuerza, carrera y progresión de rodilla',

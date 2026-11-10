@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Timer,
@@ -60,9 +60,12 @@ export default function EntrenoActivoView({
   onCompleteWorkout,
   onOpenVideo,
 }) {
-  // Temporizador de descanso automático
+  // Temporizador de descanso automático (basado en reloj real para no congelarse en iOS al bloquear pantalla)
   const [descansoSeg, setDescansoSeg] = useState(0)
   const [descansoTotal, setDescansoTotal] = useState(0)
+  const descansoFinRef = useRef(0)
+  const wakeLockRef = useRef(null)
+  const descansoActivo = descansoSeg > 0
 
   // Modales auxiliares dentro del entreno
   const [calcTarget, setCalcTarget] = useState(null)
@@ -79,28 +82,73 @@ export default function EntrenoActivoView({
   const [errorFin, setErrorFin] = useState('')
   const [resultadoRodilla, setResultadoRodilla] = useState(null)
 
+  // Mantener pantalla encendida durante el entrenamiento activo (Screen Wake Lock API)
   useEffect(() => {
-    if (descansoSeg <= 0) return undefined
-    const id = setInterval(() => {
-      setDescansoSeg((prev) => {
-        if (prev <= 1) {
-          playRestBeep()
-          return 0
+    const requestWakeLock = async () => {
+      try {
+        if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+          wakeLockRef.current = await navigator.wakeLock.request('screen')
         }
-        return prev - 1
-      })
-    }, 1000)
-    return () => clearInterval(id)
-  }, [descansoSeg])
+      } catch {
+        // Ignorar si el navegador o batería baja no lo permite
+      }
+    }
+    requestWakeLock()
+    const onVisChange = () => {
+      if (document.visibilityState === 'visible') requestWakeLock()
+    }
+    document.addEventListener('visibilitychange', onVisChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange)
+      wakeLockRef.current?.release?.().catch(() => {})
+      wakeLockRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!descansoActivo) return undefined
+    const syncDescanso = () => {
+      const fin = descansoFinRef.current
+      if (!fin) return
+      const rest = Math.max(0, Math.ceil((fin - Date.now()) / 1000))
+      if (rest <= 0) {
+        descansoFinRef.current = 0
+        setDescansoSeg(0)
+        playRestBeep()
+        try {
+          navigator?.vibrate?.([180, 80, 180])
+        } catch {
+          // Ignorar si vibración no soportada
+        }
+      } else {
+        setDescansoSeg(rest)
+      }
+    }
+    const id = setInterval(syncDescanso, 500)
+    document.addEventListener('visibilitychange', syncDescanso)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', syncDescanso)
+    }
+  }, [descansoActivo])
 
   const iniciarDescanso = (segundos) => {
     const s = Number(segundos) > 0 ? Number(segundos) : 60
+    descansoFinRef.current = Date.now() + s * 1000
     setDescansoTotal(s)
     setDescansoSeg(s)
   }
 
   const ajustarDescanso = (delta) => {
-    setDescansoSeg((prev) => Math.max(0, prev + delta))
+    if (delta === -9999 || descansoSeg + delta <= 0) {
+      descansoFinRef.current = 0
+      setDescansoSeg(0)
+      return
+    }
+    const nuevo = Math.max(0, descansoSeg + delta)
+    descansoFinRef.current = Date.now() + nuevo * 1000
+    setDescansoTotal((prev) => Math.max(prev, nuevo))
+    setDescansoSeg(nuevo)
   }
 
   const { sesion, bloques = [], seriesPorItem = {}, expandidos = {}, bloquesColapsados = {} } = entreno
@@ -205,6 +253,20 @@ export default function EntrenoActivoView({
               completada: false,
             },
           ],
+        },
+      }
+    })
+  }
+
+  const quitarUltimaSerie = (itemKey) => {
+    onUpdateEntreno((prev) => {
+      const actual = prev.seriesPorItem[itemKey] || []
+      if (actual.length <= 1) return prev
+      return {
+        ...prev,
+        seriesPorItem: {
+          ...prev.seriesPorItem,
+          [itemKey]: actual.slice(0, -1),
         },
       }
     })
@@ -972,13 +1034,24 @@ export default function EntrenoActivoView({
                                     )
                                   })()}
 
-                                <button
-                                  type="button"
-                                  onClick={() => anadirSerieExtra(itemKey)}
-                                  className="text-xs font-medium text-[#6B7280] hover:text-[#1E2433] inline-flex items-center gap-1 pt-1 pl-1"
-                                >
-                                  <Plus size={13} /> Añadir serie extra
-                                </button>
+                                <div className="flex items-center justify-between pt-1 pl-1 pr-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => anadirSerieExtra(itemKey)}
+                                    className="text-xs font-medium text-[#6B7280] hover:text-[#1E2433] inline-flex items-center gap-1"
+                                  >
+                                    <Plus size={13} /> Añadir serie extra
+                                  </button>
+                                  {series.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => quitarUltimaSerie(itemKey)}
+                                      className="text-xs font-medium text-[#9CA3AF] hover:text-red-600 inline-flex items-center gap-1"
+                                    >
+                                      <Minus size={13} /> Quitar serie
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>

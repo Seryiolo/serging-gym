@@ -22,13 +22,15 @@ function getSessionSecret() {
 }
 
 export function hashPassword(password) {
+  const cleanPwd = String(password).slice(0, 128)
   const salt = randomBytes(16).toString('hex')
-  const derived = scryptSync(String(password), salt, 64).toString('hex')
+  const derived = scryptSync(cleanPwd, salt, 64).toString('hex')
   return `scrypt$${salt}$${derived}`
 }
 
 export function verifyPassword(password, storedHash) {
   if (!storedHash || typeof storedHash !== 'string') return false
+  if (typeof password === 'string' && password.length > 128) return false
 
   let salt = ''
   let hashHex = ''

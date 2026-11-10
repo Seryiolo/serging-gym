@@ -19,6 +19,41 @@ import { hoyMadrid } from '../shared/fechas.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// Protección ligera contra fuerza bruta en login (ventana de 10 min)
+const LOGIN_WINDOW_MS = 10 * 60 * 1000
+const MAX_FAILED_ATTEMPTS = 8
+const failedLoginMap = new Map()
+
+function getRateLimitKey(req, email) {
+  const xff = req?.headers?.['x-forwarded-for']
+  const ip = (Array.isArray(xff) ? xff[0] : String(xff || '')).split(',')[0].trim() || 'local'
+  return `${ip}:${email}`
+}
+
+function isRateLimited(key) {
+  const entry = failedLoginMap.get(key)
+  if (!entry) return false
+  if (Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
+    failedLoginMap.delete(key)
+    return false
+  }
+  return entry.count >= MAX_FAILED_ATTEMPTS
+}
+
+function recordFailedLogin(key) {
+  const now = Date.now()
+  const entry = failedLoginMap.get(key)
+  if (!entry || now - entry.firstAt > LOGIN_WINDOW_MS) {
+    failedLoginMap.set(key, { count: 1, firstAt: now })
+  } else {
+    entry.count += 1
+  }
+}
+
+function clearFailedLogin(key) {
+  failedLoginMap.delete(key)
+}
+
 export default withErrorHandling(async function authHandler(req, res) {
   if (req.method === 'GET') {
     const user = await getSessionUser(req)
@@ -119,8 +154,15 @@ export default withErrorHandling(async function authHandler(req, res) {
   if (!email || !EMAIL_RE.test(email)) {
     return sendJson(res, 400, { error: 'Introduce un email válido.' })
   }
-  if (password.length < 4) {
-    return sendJson(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' })
+  if (password.length < 4 || password.length > 128) {
+    return sendJson(res, 400, { error: 'La contraseña debe tener entre 4 y 128 caracteres.' })
+  }
+
+  const rateKey = getRateLimitKey(req, email)
+  if (isRateLimited(rateKey)) {
+    return sendJson(res, 429, {
+      error: 'Demasiados intentos seguidos. Espera unos minutos antes de volver a intentarlo.',
+    })
   }
 
   const existing = await queryOne(
@@ -195,8 +237,11 @@ export default withErrorHandling(async function authHandler(req, res) {
   }
 
   if (!verifyPassword(password, existing.password_hash)) {
+    recordFailedLogin(rateKey)
     return sendJson(res, 401, { error: 'Contraseña incorrecta' })
   }
+
+  clearFailedLogin(rateKey)
 
   const userPayload = {
     id: existing.id,

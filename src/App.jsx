@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Play, Timer } from 'lucide-react'
 import {
   authCheck,
@@ -44,10 +44,11 @@ import NuevoEjercicioModal from './components/NuevoEjercicioModal'
 import LoginView from './views/LoginView'
 import HomeView from './views/HomeView'
 import AgendaView from './views/AgendaView'
-import VideosView from './views/VideosView'
-import EvolucionView from './views/EvolucionView'
 import SesionPreviewView from './views/SesionPreviewView'
 import EntrenoActivoView from './views/EntrenoActivoView'
+
+const VideosView = lazy(() => import('./views/VideosView'))
+const EvolucionView = lazy(() => import('./views/EvolucionView'))
 
 const STORAGE_ACTIVE_WORKOUT = 'sg_active_workout_v2'
 
@@ -281,21 +282,24 @@ export default function App() {
     }
   }, [])
 
-  // Carga inicial tras autenticarse
+  // Carga inicial tras autenticarse: bootstrap pinta Home al instante; el resto carga en paralelo sin bloquear
   useEffect(() => {
     if (!user) return undefined
     let cancelado = false
+    getBootstrap()
+      .then((bootRes) => {
+        if (cancelado || !bootRes) return
+        setBootstrap(bootRes)
+        if (bootRes.hoy) setHoy(bootRes.hoy)
+      })
+      .catch(() => null)
+
     Promise.all([
-      getBootstrap(),
       getEvolucion().catch(() => null),
       getCarreras().catch(() => null),
       getEjercicios().catch(() => null),
-    ]).then(([bootRes, evoRes, carrRes, ejRes]) => {
+    ]).then(([evoRes, carrRes, ejRes]) => {
       if (cancelado) return
-      if (bootRes) {
-        setBootstrap(bootRes)
-        if (bootRes.hoy) setHoy(bootRes.hoy)
-      }
       if (evoRes) setEvolucion(evoRes)
       if (carrRes) setCarrerasData(carrRes)
       if (ejRes?.ejercicios) setEjercicios(ejRes.ejercicios)
@@ -769,32 +773,48 @@ export default function App() {
               )}
 
               {activeTab === 'videos' && (
-                <VideosView
-                  ejercicios={ejercicios}
-                  cargando={cargandoVideos}
-                  onToggleFavorito={handleToggleFavorito}
-                  onOpenNuevoEjercicio={() => setModalNuevoEjercicio(true)}
-                  onOpenVideo={handleOpenVideo}
-                />
+                <Suspense
+                  fallback={
+                    <div className="px-5 py-12 text-center text-xs text-[#6B7280]">
+                      Cargando videoteca...
+                    </div>
+                  }
+                >
+                  <VideosView
+                    ejercicios={ejercicios}
+                    cargando={cargandoVideos}
+                    onToggleFavorito={handleToggleFavorito}
+                    onOpenNuevoEjercicio={() => setModalNuevoEjercicio(true)}
+                    onOpenVideo={handleOpenVideo}
+                  />
+                </Suspense>
               )}
 
               {activeTab === 'evolucion' && (
-                <EvolucionView
-                  hoy={hoy}
-                  initialSubTab={evolucionSubTab}
-                  evolucion={evolucion}
-                  carrerasData={carrerasData}
-                  onOpenPesoModal={(f) => setPesoModalFecha(f || hoy)}
-                  onEliminarPeso={handleEliminarPeso}
-                  onCambiarFaseRodilla={handleCambiarFaseRodilla}
-                  onResponderHinchazon={handleResponderHinchazon}
-                  onOpenCarreraModal={(sp) => setCarreraModalCtx(sp ?? null)}
-                  onActualizarObjetivo={handleActualizarObjetivo}
-                  onEliminarObjetivo={handleEliminarObjetivo}
-                  onActualizarRitmo={handleActualizarRitmo}
-                  onEliminarCarrera={handleEliminarCarrera}
-                  onEliminarEntreno={handleEliminarEntreno}
-                />
+                <Suspense
+                  fallback={
+                    <div className="px-5 py-12 text-center text-xs text-[#6B7280]">
+                      Cargando gráficas y evolución...
+                    </div>
+                  }
+                >
+                  <EvolucionView
+                    hoy={hoy}
+                    initialSubTab={evolucionSubTab}
+                    evolucion={evolucion}
+                    carrerasData={carrerasData}
+                    onOpenPesoModal={(f) => setPesoModalFecha(f || hoy)}
+                    onEliminarPeso={handleEliminarPeso}
+                    onCambiarFaseRodilla={handleCambiarFaseRodilla}
+                    onResponderHinchazon={handleResponderHinchazon}
+                    onOpenCarreraModal={(sp) => setCarreraModalCtx(sp ?? null)}
+                    onActualizarObjetivo={handleActualizarObjetivo}
+                    onEliminarObjetivo={handleEliminarObjetivo}
+                    onActualizarRitmo={handleActualizarRitmo}
+                    onEliminarCarrera={handleEliminarCarrera}
+                    onEliminarEntreno={handleEliminarEntreno}
+                  />
+                </Suspense>
               )}
             </main>
 

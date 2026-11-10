@@ -234,6 +234,7 @@ CREATE TABLE IF NOT EXISTS series_registradas (
 );
 CREATE INDEX IF NOT EXISTS idx_series_entreno ON series_registradas(entreno_id);
 CREATE INDEX IF NOT EXISTS idx_series_ejercicio ON series_registradas(ejercicio_id, creado_en);
+CREATE INDEX IF NOT EXISTS idx_series_ej_completada ON series_registradas(ejercicio_id, completada, entreno_id);
 
 CREATE TABLE IF NOT EXISTS carreras (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,

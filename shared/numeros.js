@@ -219,13 +219,21 @@ export function prescripcionPorDefecto(ej = {}) {
         nota: `Series de ${dist} a ritmo 5K/10K con 90-120s de recuperación activa`,
       }
     }
-    if (nombre.includes('2000m') || nombre.includes('1500m')) {
-      const dist = nombre.includes('1500m') ? '1500m' : '2000m'
+    if (nombre.includes('2000m') || nombre.includes('1500m') || nombre.includes('3000m')) {
+      const dist = nombre.includes('3000m') ? '3000m' : nombre.includes('1500m') ? '1500m' : '2000m'
       return {
         series_obj: 3,
         reps_obj: `${dist} @ Z4 Umbral`,
         descanso_s: 120,
         nota: `Series largas de umbral (${dist}) con 2 min de recuperación`,
+      }
+    }
+    if (nombre.includes('cuesta')) {
+      return {
+        series_obj: 8,
+        reps_obj: '45 seg subida Z4-Z5',
+        descanso_s: 90,
+        nota: 'Subidas potentes en cuesta (bajo impacto excéntrico) recuperando al bajar andando o trote suave',
       }
     }
     if (nombre.includes('tempo') || nombre.includes('umbral')) {

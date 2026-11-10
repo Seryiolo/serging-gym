@@ -17,6 +17,8 @@ export function sendJson(res, status, data, extraHeaders = {}) {
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...extraHeaders,
   }
   for (const [key, value] of Object.entries(headers)) {

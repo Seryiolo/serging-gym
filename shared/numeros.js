@@ -136,6 +136,158 @@ export function formatSegundosInput(segundos, forzarMMSS = false) {
 }
 
 /**
+ * Extrae una secuencia de distancias en metros si el ejercicio es una Pirámide o Escalera
+ * (ej. "400m - 500m - 600m - 800m - 600m - 500m - 400m" -> [400, 500, 600, 800, 600, 500, 400]).
+ * Devuelve un array con las distancias por serie, o null si es distancia fija.
+ */
+export function extraerSecuenciaDistanciasMetros(repsObj = '', nombreEj = '', instrucciones = '') {
+  const texto = `${repsObj || ''} ${nombreEj || ''} ${instrucciones || ''}`.toLowerCase()
+  // Buscar secuencias tipo "400m - 500m - 600m..." o "400-500-600-800-600-500-400"
+  const matchGuiones = texto.match(/\b(\d{3,4})\s*m?\s*[-/–]\s*(\d{3,4})\s*m?(?:\s*[-/–]\s*(\d{3,4})\s*m?)+/)
+  if (matchGuiones) {
+    const nums = [...matchGuiones[0].matchAll(/\b(\d{3,4})\b/g)]
+      .map((m) => Number(m[1]))
+      .filter((n) => n >= 100 && n <= 5000)
+    if (nums.length >= 3) return nums
+  }
+  if (texto.includes('piramide') || texto.includes('pirámide')) {
+    return [400, 500, 600, 800, 600, 500, 400]
+  }
+  return null
+}
+
+/**
+ * Genera una prescripción lógica por defecto (series_obj, reps_obj, descanso_s, nota)
+ * para un ejercicio cuando el usuario lo añade o sustituye en una sesión.
+ */
+export function prescripcionPorDefecto(ej = {}) {
+  const nombre = String(ej.nombre || '').toLowerCase()
+  const inst = String(ej.instrucciones || '')
+  const tipoReg = ej.tipo_registro || 'fuerza'
+  const grupo = ej.grupo || 'fuerza'
+
+  // 1. Casos especiales de Carrera (Pirámide, Fartlek, Series, Tempo, Rodaje, Sprints)
+  if (grupo === 'carrera' || tipoReg === 'carrera') {
+    const seq = extraerSecuenciaDistanciasMetros('', ej.nombre, ej.instrucciones)
+    if (seq) {
+      return {
+        series_obj: seq.length,
+        reps_obj: `${seq.map((d) => `${d}m`).join('-')} @ Z4-Z5`,
+        descanso_s: 105,
+        nota: 'Pirámide en pista (1 a 2 bloques) · Descanso 90-120s activo andando entre repeticiones',
+      }
+    }
+    if (nombre.includes('fartlek') && (nombre.includes('5 min') || nombre.includes('5min') || inst.toLowerCase().includes('5 min'))) {
+      return {
+        series_obj: 4,
+        reps_obj: '5 min Z4 + 1:30 trote/andar Z2',
+        descanso_s: 90,
+        nota: 'Fartlek 5K/10K: 5 min corriendo fuerte en Zona 4 seguidos de 1:30 min andando o trotando suave en Zona 2',
+      }
+    }
+    if (nombre.includes('fartlek')) {
+      return {
+        series_obj: 6,
+        reps_obj: '2 min Z4-Z5 + 1 min suave Z2',
+        descanso_s: 60,
+        nota: 'Cambios de ritmo continuos alternando tramo fuerte y recuperación activa al trote',
+      }
+    }
+    if (nombre.includes('200m') || nombre.includes('300m')) {
+      const dist = nombre.includes('200m') ? '200m' : '300m'
+      return {
+        series_obj: 8,
+        reps_obj: `${dist} @ R5-Velocidad`,
+        descanso_s: 90,
+        nota: `Series rápidas de ${dist} con técnica fluida y recuperación andando 90s`,
+      }
+    }
+    if (nombre.includes('400m') || nombre.includes('500m')) {
+      return {
+        series_obj: 6,
+        reps_obj: '400m @ Z5',
+        descanso_s: 90,
+        nota: 'Series cortas VO2max con 90s de recuperación activa andando',
+      }
+    }
+    if (nombre.includes('800m') || nombre.includes('1000m') || nombre.includes('1200m')) {
+      const dist = nombre.includes('800m') ? '800m' : nombre.includes('1200m') ? '1200m' : '1000m'
+      return {
+        series_obj: 5,
+        reps_obj: `${dist} @ Z4-Z5`,
+        descanso_s: 120,
+        nota: `Series de ${dist} a ritmo 5K/10K con 90-120s de recuperación activa`,
+      }
+    }
+    if (nombre.includes('2000m') || nombre.includes('1500m')) {
+      const dist = nombre.includes('1500m') ? '1500m' : '2000m'
+      return {
+        series_obj: 3,
+        reps_obj: `${dist} @ Z4 Umbral`,
+        descanso_s: 120,
+        nota: `Series largas de umbral (${dist}) con 2 min de recuperación`,
+      }
+    }
+    if (nombre.includes('tempo') || nombre.includes('umbral')) {
+      return {
+        series_obj: 1,
+        reps_obj: '5000m @ Z3-Z4 Tempo',
+        descanso_s: 0,
+        nota: 'Bloque controlado a ritmo de umbral anaeróbico sostenido',
+      }
+    }
+    if (nombre.includes('skip') || nombre.includes('ankling') || nombre.includes('drill') || nombre.includes('rectas') || nombre.includes('strides')) {
+      return {
+        series_obj: 3,
+        reps_obj: '40 metros',
+        descanso_s: 45,
+        nota: 'Técnica reactiva de carrera · recuperación caminando de vuelta',
+      }
+    }
+    return {
+      series_obj: 1,
+      reps_obj: '8000m @ Z2',
+      descanso_s: 0,
+      nota: 'Rodaje aeróbico continuo en Zona 2 vigilando sensaciones de rodilla',
+    }
+  }
+
+  if (tipoReg === 'isometrico' || tipoReg === 'tiempo') {
+    return {
+      series_obj: 3,
+      reps_obj: ej.unilateral ? '30 seg/lado' : '35 seg',
+      descanso_s: 60,
+      nota: ej.instrucciones ? ej.instrucciones.slice(0, 90) : 'Mantener tensión isométrica constante',
+    }
+  }
+
+  if (tipoReg === 'movilidad' || grupo === 'movilidad') {
+    return {
+      series_obj: 2,
+      reps_obj: ej.unilateral ? '8+8 reps' : '10 reps',
+      descanso_s: 30,
+      nota: 'Movimiento fluido y controlado en todo el rango articular',
+    }
+  }
+
+  if (grupo === 'pliometria' || grupo === 'agilidad') {
+    return {
+      series_obj: 3,
+      reps_obj: ej.unilateral ? '5+5 reps' : '6 reps',
+      descanso_s: 90,
+      nota: 'Máxima calidad reactiva y aterrizaje suave alineando cadera-rodilla-pie',
+    }
+  }
+
+  return {
+    series_obj: 3,
+    reps_obj: ej.unilateral ? '8+8 reps' : '8-10 reps',
+    descanso_s: 90,
+    nota: null,
+  }
+}
+
+/**
  * Extrae la distancia objetivo en metros de un ejercicio de carrera/series/drills
  * a partir de su reps_obj (ej. "1000m @ Z4-Z5", "40 metros", "8k - 14k Z2") o su nombre.
  */

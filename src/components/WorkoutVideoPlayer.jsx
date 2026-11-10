@@ -19,6 +19,11 @@ import {
   GRUPO_LABELS,
   IMPACTO_LABELS,
 } from '../lib/media'
+import {
+  extraerSecuenciaDistanciasMetros,
+  prescripcionPorDefecto,
+  formatDescanso,
+} from '../../shared/numeros'
 
 /**
  * Reproductor Dual de Entrenamiento:
@@ -239,18 +244,88 @@ export default function WorkoutVideoPlayer({
               }
             />
           ) : (
-            <div className="p-5 text-center space-y-1.5">
-              <Info size={22} className="mx-auto text-[#F8B07E]" />
-              <p className="text-xs text-white/85 font-medium">
-                {videoFailed
-                  ? 'Clip local pendiente de generar en public/videos/rodilla'
-                  : 'Sin clip de vídeo adjunto'}
-              </p>
-              {ejercicio.instrucciones && (
-                <p className="text-[11px] text-white/65 max-w-xs mx-auto leading-relaxed">
-                  {ejercicio.instrucciones}
-                </p>
-              )}
+            <div className="p-5 text-left w-full max-w-md mx-auto space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EE8641]/20 text-[#F8B07E] text-[11px] font-semibold">
+                  <Info size={13} />
+                  {ejercicio.grupo === 'carrera'
+                    ? 'Ficha Técnica de Carrera'
+                    : videoFailed
+                      ? 'Clip local pendiente'
+                      : 'Ficha Técnica del Ejercicio'}
+                </span>
+                {ejercicio.equipamiento && (
+                  <span className="text-[11px] text-white/60">
+                    {ejercicio.equipamiento}
+                  </span>
+                )}
+              </div>
+
+              {(() => {
+                const presc = prescripcionPorDefecto(ejercicio)
+                const pasos = extraerSecuenciaDistanciasMetros(
+                  presc.reps_obj,
+                  ejercicio.nombre,
+                  ejercicio.instrucciones
+                )
+                return (
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-xl bg-white/8 p-2.5 border border-white/10">
+                        <span className="block text-[10px] uppercase tracking-wider text-white/50">
+                          Bloques / Series
+                        </span>
+                        <span className="text-sm font-semibold text-white">
+                          {presc.series_obj} series
+                        </span>
+                      </div>
+                      <div className="rounded-xl bg-white/8 p-2.5 border border-white/10">
+                        <span className="block text-[10px] uppercase tracking-wider text-white/50">
+                          Objetivo
+                        </span>
+                        <span className="text-xs font-semibold text-[#F8B07E] line-clamp-1">
+                          {presc.reps_obj}
+                        </span>
+                      </div>
+                      <div className="rounded-xl bg-white/8 p-2.5 border border-white/10">
+                        <span className="block text-[10px] uppercase tracking-wider text-white/50">
+                          Descanso
+                        </span>
+                        <span className="text-sm font-semibold text-emerald-300">
+                          {presc.descanso_s > 0
+                            ? formatDescanso(presc.descanso_s)
+                            : 'Continuo'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {pasos && pasos.length > 0 && (
+                      <div className="rounded-xl bg-white/6 p-2.5 border border-white/10">
+                        <span className="block text-[10px] uppercase tracking-wider text-white/55 mb-1.5">
+                          Secuencia de distancias por serie (1 bloque ={' '}
+                          {(pasos.reduce((a, b) => a + b, 0) / 1000).toFixed(2)} km)
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {pasos.map((m, idx) => (
+                            <span
+                              key={`${m}_${idx}`}
+                              className="px-2 py-0.5 rounded-lg bg-[#EE8641]/25 text-[#F8B07E] text-[11px] font-bold"
+                            >
+                              #{idx + 1} {m}m
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {ejercicio.instrucciones && (
+                      <p className="text-xs text-white/80 leading-relaxed">
+                        {ejercicio.instrucciones}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>

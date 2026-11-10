@@ -6,9 +6,15 @@
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, readJson, sendJson, withErrorHandling } from './_lib/http.js'
 import { batch, execute, queryOne, readBatch } from './_lib/turso.js'
-import { candidatosSustitucion, evaluarRodillaUsuario } from './_lib/planner-db.js'
+import { candidatosParaSesion, candidatosSustitucion, evaluarRodillaUsuario } from './_lib/planner-db.js'
 import { hoyMadrid, TZ } from '../shared/fechas.js'
-import { parseDecimal, formatDuracion, formatRitmo, ritmoSegKm } from '../shared/numeros.js'
+import {
+  parseDecimal,
+  formatDuracion,
+  formatRitmo,
+  ritmoSegKm,
+  prescripcionPorDefecto,
+} from '../shared/numeros.js'
 
 function ahoraMadridISO(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -437,15 +443,19 @@ export default withErrorHandling(async function sesionHandler(req, res) {
 
     const [actualRows, nuevoEjRows] = await readBatch([
       {
-        sql: `SELECT se.id, se.ejercicio_id, se.sustituye_a
+        sql: `SELECT se.id, se.ejercicio_id, se.sustituye_a,
+                     se.series_obj, se.reps_obj, se.descanso_s, se.nota,
+                     e.grupo AS grupo_anterior, e.tipo_registro AS tipo_anterior
               FROM sesion_ejercicios se
               JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
+              JOIN ejercicios e ON e.id = se.ejercicio_id
               WHERE se.id = ? AND sp.user_id = ?
               LIMIT 1`,
         args: [sesionEjercicioId, user.id],
       },
       {
-        sql: `SELECT id FROM ejercicios
+        sql: `SELECT id, nombre, grupo, patron, tipo_registro, unilateral, instrucciones
+              FROM ejercicios
               WHERE id = ? AND activo = 1 AND (user_id IS NULL OR user_id = ?)
               LIMIT 1`,
         args: [nuevoId, user.id],
@@ -453,17 +463,263 @@ export default withErrorHandling(async function sesionHandler(req, res) {
     ])
 
     const actual = actualRows[0]
+    const nuevoEj = nuevoEjRows[0]
     if (!actual) {
       return sendJson(res, 404, { error: 'Ejercicio de sesión no encontrado.' })
     }
-    if (!nuevoEjRows[0]) {
+    if (!nuevoEj) {
       return sendJson(res, 404, { error: 'El ejercicio seleccionado no está disponible.' })
     }
 
+    const presc = prescripcionPorDefecto(nuevoEj)
+    const cambiaProtocolo =
+      nuevoEj.grupo === 'carrera' ||
+      nuevoEj.tipo_registro !== actual.tipo_anterior ||
+      nuevoEj.grupo !== actual.grupo_anterior ||
+      Boolean(body.actualizarPrescripcion)
+
+    const seriesObj =
+      body.series_obj != null && Number(body.series_obj) > 0
+        ? Math.min(25, Math.max(1, Math.round(Number(body.series_obj))))
+        : cambiaProtocolo
+          ? presc.series_obj
+          : actual.series_obj
+    const repsObj =
+      typeof body.reps_obj === 'string' && body.reps_obj.trim()
+        ? body.reps_obj.trim()
+        : cambiaProtocolo
+          ? presc.reps_obj
+          : actual.reps_obj
+    const descansoS =
+      body.descanso_s != null && Number.isFinite(Number(body.descanso_s)) && Number(body.descanso_s) >= 0
+        ? Math.min(600, Math.round(Number(body.descanso_s)))
+        : cambiaProtocolo
+          ? presc.descanso_s
+          : actual.descanso_s
+    const notaNueva =
+      body.nota !== undefined
+        ? (typeof body.nota === 'string' && body.nota.trim() ? body.nota.trim() : null)
+        : cambiaProtocolo
+          ? presc.nota
+          : actual.nota
+
     const sustituyeA = actual.sustituye_a ?? actual.ejercicio_id
     await execute(
-      'UPDATE sesion_ejercicios SET ejercicio_id = ?, sustituye_a = ? WHERE id = ?',
-      [nuevoId, sustituyeA, sesionEjercicioId],
+      `UPDATE sesion_ejercicios
+       SET ejercicio_id = ?, sustituye_a = ?, series_obj = ?, reps_obj = ?, descanso_s = ?, nota = ?
+       WHERE id = ?`,
+      [nuevoId, sustituyeA, seriesObj, repsObj, descansoS, notaNueva, sesionEjercicioId],
+    )
+
+    return sendJson(res, 200, { ok: true })
+  }
+
+  if (action === 'candidatos_anadir') {
+    const sesionPlanId = Number(body.sesionPlanId)
+    if (!Number.isInteger(sesionPlanId) || sesionPlanId <= 0) {
+      return sendJson(res, 400, { error: 'ID de sesión planificada no válido.' })
+    }
+    const grupoSugerido =
+      typeof body.grupoSugerido === 'string' && body.grupoSugerido.trim()
+        ? body.grupoSugerido.trim()
+        : null
+    const candidatos = await candidatosParaSesion(user.id, sesionPlanId, grupoSugerido)
+    return sendJson(res, 200, { candidatos })
+  }
+
+  if (action === 'anadir_ejercicio') {
+    const sesionPlanId = Number(body.sesionPlanId)
+    const ejercicioId = Number(body.ejercicioId)
+    if (!Number.isInteger(sesionPlanId) || sesionPlanId <= 0) {
+      return sendJson(res, 400, { error: 'ID de sesión planificada no válido.' })
+    }
+    if (!Number.isInteger(ejercicioId) || ejercicioId <= 0) {
+      return sendJson(res, 400, { error: 'ID de ejercicio no válido.' })
+    }
+
+    const [sesionRows, ejRows, bloquesRows] = await readBatch([
+      {
+        sql: 'SELECT id, tipo FROM sesiones_plan WHERE id = ? AND user_id = ? LIMIT 1',
+        args: [sesionPlanId, user.id],
+      },
+      {
+        sql: `SELECT id, nombre, grupo, patron, tipo_registro, unilateral, instrucciones
+              FROM ejercicios
+              WHERE id = ? AND activo = 1 AND (user_id IS NULL OR user_id = ?)
+              LIMIT 1`,
+        args: [ejercicioId, user.id],
+      },
+      {
+        sql: `SELECT bloque_orden, bloque_nombre, bloque_tipo, MAX(orden) AS max_orden
+              FROM sesion_ejercicios
+              WHERE sesion_plan_id = ?
+              GROUP BY bloque_orden, bloque_nombre, bloque_tipo
+              ORDER BY bloque_orden ASC`,
+        args: [sesionPlanId],
+      },
+    ])
+
+    const sesion = sesionRows[0]
+    const ej = ejRows[0]
+    if (!sesion) {
+      return sendJson(res, 404, { error: 'Sesión planificada no encontrada.' })
+    }
+    if (!ej) {
+      return sendJson(res, 404, { error: 'Ejercicio no encontrado.' })
+    }
+
+    const reqBloqueOrden = Number(body.bloqueOrden)
+    const bloqueExistente =
+      Number.isInteger(reqBloqueOrden) && reqBloqueOrden > 0
+        ? (bloquesRows || []).find((b) => Number(b.bloque_orden) === reqBloqueOrden)
+        : (bloquesRows || [])[bloquesRows.length - 1] || null
+
+    const bloqueOrden = bloqueExistente
+      ? Number(bloqueExistente.bloque_orden)
+      : Number.isInteger(reqBloqueOrden) && reqBloqueOrden > 0
+        ? reqBloqueOrden
+        : 1
+    const bloqueNombre =
+      bloqueExistente?.bloque_nombre ||
+      (typeof body.bloqueNombre === 'string' && body.bloqueNombre.trim()
+        ? body.bloqueNombre.trim()
+        : 'Bloque Principal')
+    const bloqueTipo =
+      bloqueExistente?.bloque_tipo ||
+      (typeof body.bloqueTipo === 'string' && body.bloqueTipo.trim()
+        ? body.bloqueTipo.trim()
+        : ej.grupo === 'carrera'
+          ? 'carrera'
+          : ej.grupo === 'movilidad'
+            ? 'movilidad'
+            : 'fuerza')
+    const nuevoOrden = (Number(bloqueExistente?.max_orden) || 0) + 1
+
+    const presc = prescripcionPorDefecto(ej)
+    const seriesObj =
+      body.series_obj != null && Number(body.series_obj) > 0
+        ? Math.min(25, Math.max(1, Math.round(Number(body.series_obj))))
+        : presc.series_obj
+    const repsObj =
+      typeof body.reps_obj === 'string' && body.reps_obj.trim()
+        ? body.reps_obj.trim()
+        : presc.reps_obj
+    const descansoS =
+      body.descanso_s != null && Number.isFinite(Number(body.descanso_s)) && Number(body.descanso_s) >= 0
+        ? Math.min(600, Math.round(Number(body.descanso_s)))
+        : presc.descanso_s
+    const nota =
+      typeof body.nota === 'string' && body.nota.trim()
+        ? body.nota.trim()
+        : presc.nota
+
+    const ins = await execute(
+      `INSERT INTO sesion_ejercicios (
+         sesion_plan_id, bloque_orden, bloque_nombre, bloque_tipo,
+         orden, ejercicio_id, rol, superserie, series_obj, reps_obj,
+         rpe_obj, descanso_s, nota, sustituye_a
+       ) VALUES (?, ?, ?, ?, ?, ?, 'variable', NULL, ?, ?, 8.0, ?, ?, NULL)
+       RETURNING id`,
+      [
+        sesionPlanId,
+        bloqueOrden,
+        bloqueNombre,
+        bloqueTipo,
+        nuevoOrden,
+        ejercicioId,
+        seriesObj,
+        repsObj,
+        descansoS,
+        nota,
+      ],
+    )
+
+    return sendJson(res, 200, {
+      ok: true,
+      sesionEjercicioId: ins.rows[0]?.id ?? ins.lastInsertRowid,
+    })
+  }
+
+  if (action === 'quitar_ejercicio') {
+    const sesionEjercicioId = Number(body.sesionEjercicioId)
+    if (!Number.isInteger(sesionEjercicioId) || sesionEjercicioId <= 0) {
+      return sendJson(res, 400, { error: 'ID de ejercicio de sesión no válido.' })
+    }
+
+    const actual = await queryOne(
+      `SELECT se.id, se.sesion_plan_id
+       FROM sesion_ejercicios se
+       JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
+       WHERE se.id = ? AND sp.user_id = ?
+       LIMIT 1`,
+      [sesionEjercicioId, user.id],
+    )
+    if (!actual) {
+      return sendJson(res, 404, { error: 'Ejercicio de sesión no encontrado.' })
+    }
+
+    const conteoRow = await queryOne(
+      'SELECT COUNT(*) AS total FROM sesion_ejercicios WHERE sesion_plan_id = ?',
+      [actual.sesion_plan_id],
+    )
+    if (Number(conteoRow?.total || 0) <= 1) {
+      return sendJson(res, 400, {
+        error: 'La sesión debe mantener al menos un ejercicio. Si prefieres otro, usa el botón Cambiar.',
+      })
+    }
+
+    await batch([
+      {
+        sql: 'UPDATE series_registradas SET sesion_ejercicio_id = NULL WHERE sesion_ejercicio_id = ?',
+        args: [sesionEjercicioId],
+      },
+      {
+        sql: 'DELETE FROM sesion_ejercicios WHERE id = ?',
+        args: [sesionEjercicioId],
+      },
+    ])
+
+    return sendJson(res, 200, { ok: true })
+  }
+
+  if (action === 'editar_ejercicio_sesion') {
+    const sesionEjercicioId = Number(body.sesionEjercicioId)
+    if (!Number.isInteger(sesionEjercicioId) || sesionEjercicioId <= 0) {
+      return sendJson(res, 400, { error: 'ID de ejercicio de sesión no válido.' })
+    }
+
+    const actual = await queryOne(
+      `SELECT se.id, se.series_obj, se.reps_obj, se.descanso_s, se.nota
+       FROM sesion_ejercicios se
+       JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
+       WHERE se.id = ? AND sp.user_id = ?
+       LIMIT 1`,
+      [sesionEjercicioId, user.id],
+    )
+    if (!actual) {
+      return sendJson(res, 404, { error: 'Ejercicio de sesión no encontrado.' })
+    }
+
+    const seriesObj =
+      body.series_obj != null && Number(body.series_obj) > 0
+        ? Math.min(25, Math.max(1, Math.round(Number(body.series_obj))))
+        : actual.series_obj
+    const repsObj =
+      typeof body.reps_obj === 'string' && body.reps_obj.trim()
+        ? body.reps_obj.trim()
+        : actual.reps_obj
+    const descansoS =
+      body.descanso_s != null && Number.isFinite(Number(body.descanso_s)) && Number(body.descanso_s) >= 0
+        ? Math.min(600, Math.round(Number(body.descanso_s)))
+        : actual.descanso_s
+    const nota =
+      body.nota !== undefined
+        ? (typeof body.nota === 'string' && body.nota.trim() ? body.nota.trim() : null)
+        : actual.nota
+
+    await execute(
+      'UPDATE sesion_ejercicios SET series_obj = ?, reps_obj = ?, descanso_s = ?, nota = ? WHERE id = ?',
+      [seriesObj, repsObj, descansoS, nota, sesionEjercicioId],
     )
 
     return sendJson(res, 200, { ok: true })

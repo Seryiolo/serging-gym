@@ -12,8 +12,17 @@ import {
 } from '../../shared/planner.js'
 import { evaluarProgresion } from '../../shared/rodilla.js'
 import { addDias, hoyMadrid, lunesDe } from '../../shared/fechas.js'
+import { prescripcionPorDefecto } from '../../shared/numeros.js'
 import { batch, execute, queryOne, readBatch } from './turso.js'
 import { httpError } from './http.js'
+
+const GRUPOS_POR_TIPO_SESION = {
+  superior: ['pecho', 'espalda', 'hombro', 'biceps', 'triceps', 'core', 'movilidad'],
+  inferior: ['cuadriceps', 'isquios', 'gluteo', 'gemelo', 'core', 'movilidad', 'cuerpo_completo'],
+  pliometria_agilidad: ['pliometria', 'agilidad', 'carrera', 'core', 'movilidad', 'gluteo', 'isquios', 'cuadriceps', 'gemelo'],
+  carrera: ['carrera', 'movilidad', 'core', 'gemelo', 'gluteo', 'pliometria', 'agilidad'],
+  movilidad_core: ['movilidad', 'core', 'gluteo', 'gemelo', 'isquios', 'cuadriceps'],
+}
 
 export function construirEstadoRodilla(rodillaRow, fasesRows, entrenosRows, hoy = hoyMadrid()) {
   const fases = fasesRows || []
@@ -181,6 +190,12 @@ function resolverEjercicioHueco({ hueco, plantillaKey, bloqueOrden, lunes, userI
       }
 
   let candidatos = candidatosDeHueco(catalogo, filtro, ctx)
+  if (filtro.grupo === 'carrera' && filtro.patron !== 'tecnica_carrera') {
+    const principalesCarrera = candidatos.filter(
+      (c) => c.patron !== 'tecnica_carrera' && c.patron !== 'mecanica_aceleracion',
+    )
+    if (principalesCarrera.length > 0) candidatos = principalesCarrera
+  }
   const sinDuplicar = candidatos.filter((c) => !usadosEnSesion.has(c.id))
   if (sinDuplicar.length > 0) candidatos = sinDuplicar
 
@@ -425,6 +440,7 @@ export async function generarSemanaPlan(
       plantilla.tipo === 'carrera' || plantilla.tipo === 'pliometria_agilidad'
     const ctxSesion = {
       ...ctx,
+      impactoMax: esSesionExterior ? Math.max(ctx.impactoMax, 2) : ctx.impactoMax,
       excluirEquipo: esSesionExterior
         ? [
             'barra',
@@ -461,9 +477,18 @@ export async function generarSemanaPlan(
         if (!resuelto.ejercicioId) continue
         usadosEnSesion.add(resuelto.ejercicioId)
 
+        const ejResuelto = catalogoMap.get(resuelto.ejercicioId)
+        const usarPrescripcionPropia =
+          ejResuelto &&
+          ejResuelto.grupo === 'carrera' &&
+          resuelto.ejercicioId !== hueco.ejercicio_id &&
+          bloque.tipo === 'carrera'
+        const prescPropia = usarPrescripcionPropia ? prescripcionPorDefecto(ejResuelto) : null
+
+        const notaBase = prescPropia?.nota || hueco.nota || null
         const notaFinal = resuelto.adaptadoRodilla
-          ? `${hueco.nota ? `${hueco.nota} · ` : ''}(Adaptado a tu fase actual de rodilla)`
-          : hueco.nota ?? null
+          ? `${notaBase ? `${notaBase} · ` : ''}(Adaptado a tu fase actual de rodilla)`
+          : notaBase
 
         stmts.push({
           sql: `INSERT INTO sesion_ejercicios (
@@ -483,10 +508,10 @@ export async function generarSemanaPlan(
             resuelto.ejercicioId,
             hueco.rol,
             hueco.superserie ?? null,
-            hueco.series ?? 3,
-            hueco.reps ?? '8-10',
+            prescPropia?.series_obj ?? hueco.series ?? 3,
+            prescPropia?.reps_obj ?? hueco.reps ?? '8-10',
             hueco.rpe_objetivo ?? null,
-            hueco.descanso_s ?? 90,
+            prescPropia?.descanso_s ?? hueco.descanso_s ?? 90,
             notaFinal,
             resuelto.sustituyeA,
           ],
@@ -500,8 +525,78 @@ export async function generarSemanaPlan(
 }
 
 /**
- * Devuelve ejercicios compatibles para sustituir un ejercicio concreto de una sesion planificada,
- * respetando siempre el impacto maximo y la fase de rodilla actual del usuario.
+ * Construye el catálogo completo de ejercicios disponibles para cambiar o añadir
+ * en una sesión planificada, anotando cuáles pertenecen al mismo grupo, a la misma
+ * sección del entrenamiento o son creados por el usuario, sin ocultar ninguno.
+ */
+async function construirCatalogoParaContexto(userId, { ejercicioActualId = null, sesionTipo = null, grupoRef = null, patronRef = null, tipoRegistroRef = null }) {
+  const [rodillaRows, fasesRows, catalogo] = await readBatch([
+    {
+      sql: `SELECT er.fase_id, fr.impacto_max
+            FROM estado_rodilla er
+            JOIN fases_rodilla fr ON fr.id = er.fase_id
+            WHERE er.user_id = ? LIMIT 1`,
+      args: [userId],
+    },
+    { sql: 'SELECT id, impacto_max FROM fases_rodilla ORDER BY id ASC', args: [] },
+    {
+      sql: `SELECT id, user_id, nombre, grupo, patron, tipo_registro, unilateral, impacto,
+                   fase_rodilla_min, equipamiento, instrucciones, video_url,
+                   poster_url, video_origen, activo
+            FROM ejercicios
+            WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
+            ORDER BY nombre ASC`,
+      args: [userId],
+    },
+  ])
+
+  const faseFallback = fasesRows[0] || { id: 1, impacto_max: 1 }
+  const faseId = rodillaRows[0]?.fase_id ?? faseFallback.id
+  const impactoMax = rodillaRows[0]?.impacto_max ?? faseFallback.impacto_max
+  const gruposSeccion = GRUPOS_POR_TIPO_SESION[sesionTipo] || []
+
+  const cands = catalogo
+    .filter((c) => c.id !== ejercicioActualId)
+    .map(({ activo: _activo, ...c }) => {
+      const esPersonal = c.user_id != null && Number(c.user_id) === Number(userId)
+      const esMismoGrupo = Boolean(grupoRef && c.grupo === grupoRef)
+      const esMismaSeccion = Boolean(
+        esMismoGrupo || gruposSeccion.includes(c.grupo),
+      )
+      const avisoRodilla = Boolean(c.impacto > impactoMax || c.fase_rodilla_min > faseId)
+      return {
+        ...c,
+        es_personal: esPersonal,
+        es_mismo_grupo: esMismoGrupo,
+        es_misma_seccion: esMismaSeccion,
+        aviso_rodilla: avisoRodilla,
+        prescripcion_sugerida: prescripcionPorDefecto(c),
+      }
+    })
+
+  cands.sort((a, b) => {
+    const score = (item) => {
+      let s = 0
+      if (item.es_mismo_grupo) s += 100
+      else if (item.es_misma_seccion) s += 50
+      if (item.es_personal && item.es_mismo_grupo) s += 40
+      else if (item.es_personal && item.es_misma_seccion) s += 25
+      else if (item.es_personal) s += 10
+      if (patronRef && item.patron === patronRef) s += 8
+      if (tipoRegistroRef && item.tipo_registro === tipoRegistroRef) s += 4
+      if (!item.aviso_rodilla) s += 2
+      return s
+    }
+    const diff = score(b) - score(a)
+    if (diff !== 0) return diff
+    return a.nombre.localeCompare(b.nombre, 'es')
+  })
+
+  return cands
+}
+
+/**
+ * Devuelve ejercicios para sustituir un ejercicio concreto de una sesion planificada.
  */
 export async function candidatosSustitucion(userId, sesionEjercicioId) {
   const actual = await queryOne(
@@ -518,70 +613,42 @@ export async function candidatosSustitucion(userId, sesionEjercicioId) {
     throw httpError(404, 'No se encontró el ejercicio dentro de tu sesión.')
   }
 
-  const [rodillaRows, fasesRows, catalogo] = await readBatch([
-    {
-      sql: `SELECT er.fase_id, fr.impacto_max
-            FROM estado_rodilla er
-            JOIN fases_rodilla fr ON fr.id = er.fase_id
-            WHERE er.user_id = ? LIMIT 1`,
-      args: [userId],
-    },
-    { sql: 'SELECT id, impacto_max FROM fases_rodilla ORDER BY id ASC', args: [] },
-    {
-      sql: `SELECT id, nombre, grupo, patron, tipo_registro, unilateral, impacto,
-                   fase_rodilla_min, equipamiento, instrucciones, video_url,
-                   poster_url, video_origen, activo
-            FROM ejercicios
-            WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
-            ORDER BY nombre ASC`,
-      args: [userId],
-    },
-  ])
-
-  const faseFallback = fasesRows[0] || { id: 1, impacto_max: 1 }
-  const esSesionExterior =
-    actual.sesion_tipo === 'carrera' || actual.sesion_tipo === 'pliometria_agilidad'
-  const ctx = {
-    faseId: rodillaRows[0]?.fase_id ?? faseFallback.id,
-    impactoMax: rodillaRows[0]?.impacto_max ?? faseFallback.impacto_max,
-    excluirEquipo: esSesionExterior
-      ? [
-          'barra',
-          'mancuerna',
-          'maquina',
-          'máquina',
-          'polea',
-          'rack',
-          'multipower',
-          'prensa',
-          'fitball',
-          'landmine',
-          'trineo',
-          'kettlebell',
-          'disco',
-        ]
-      : ['conos', 'pista', 'vallas'],
-  }
-
-  let cands = candidatosDeHueco(catalogo, { grupo: actual.grupo }, ctx).filter(
-    (c) => c.id !== actual.ejercicio_id,
-  )
-
-  // Si el grupo (ej. pliometria en fase 1) no tiene alternativas dentro del impacto permitido, ofrecer alternativas seguras de pierna/core
-  if (cands.length === 0) {
-    const gruposAlt = GRUPOS_ALTERNATIVOS_RODILLA[actual.grupo] || ['movilidad', 'core']
-    cands = candidatosDeHueco(catalogo, {}, ctx).filter(
-      (c) => c.id !== actual.ejercicio_id && gruposAlt.includes(c.grupo),
-    )
-  }
-
-  // Ordenar priorizando mismo patron y mismo tipo_registro
-  cands.sort((a, b) => {
-    const scoreA = (a.patron === actual.patron ? 2 : 0) + (a.tipo_registro === actual.tipo_registro ? 1 : 0)
-    const scoreB = (b.patron === actual.patron ? 2 : 0) + (b.tipo_registro === actual.tipo_registro ? 1 : 0)
-    if (scoreB !== scoreA) return scoreB - scoreA
-    return a.nombre.localeCompare(b.nombre, 'es')
+  return construirCatalogoParaContexto(userId, {
+    ejercicioActualId: actual.ejercicio_id,
+    sesionTipo: actual.sesion_tipo,
+    grupoRef: actual.grupo,
+    patronRef: actual.patron,
+    tipoRegistroRef: actual.tipo_registro,
   })
+}
 
-  return cands.map(({ activo: _activo, ...rest }) => rest)
+/**
+ * Devuelve ejercicios disponibles para añadir a un bloque de una sesión planificada.
+ */
+export async function candidatosParaSesion(userId, sesionPlanId, grupoSugerido = null) {
+  const sesion = await queryOne(
+    'SELECT id, tipo FROM sesiones_plan WHERE id = ? AND user_id = ? LIMIT 1',
+    [sesionPlanId, userId],
+  )
+  if (!sesion) {
+    throw httpError(404, 'No se encontró la sesión planificada.')
+  }
+
+  const grupoPorDefecto =
+    grupoSugerido ||
+    (sesion.tipo === 'carrera'
+      ? 'carrera'
+      : sesion.tipo === 'pliometria_agilidad'
+        ? 'pliometria'
+        : sesion.tipo === 'inferior'
+          ? 'cuadriceps'
+          : sesion.tipo === 'superior'
+            ? 'pecho'
+            : 'movilidad')
+
+  return construirCatalogoParaContexto(userId, {
+    ejercicioActualId: null,
+    sesionTipo: sesion.tipo,
+    grupoRef: grupoPorDefecto,
+  })
 }

@@ -25,6 +25,8 @@ import {
   parseTiempoSegundos,
   formatSegundosInput,
   extraerDistanciaMetros,
+  extraerSecuenciaDistanciasMetros,
+  prescripcionPorDefecto,
   formatearMarcaLogica,
 } from '../shared/numeros.js'
 
@@ -288,6 +290,28 @@ test('numeros: parseTiempoSegundos, extraerDistanciaMetros y formatearMarcaLogic
     formatearMarcaLogica({ peso_kg: 70, reps: 8 }, 'fuerza'),
     '70 kg × 8 reps'
   )
+
+  const piramide = extraerSecuenciaDistanciasMetros(
+    '400m - 500m - 600m - 800m - 600m - 500m - 400m (Z4-Z5)',
+    'Series Pirámide Pista'
+  )
+  assert.deepEqual(piramide, [400, 500, 600, 800, 600, 500, 400])
+
+  const prescPiramide = prescripcionPorDefecto({
+    nombre: 'Series Pirámide Pista (400m-500m-600m-800m-600m-500m-400m)',
+    grupo: 'carrera',
+    tipo_registro: 'carrera',
+  })
+  assert.equal(prescPiramide.series_obj, 7)
+  assert.equal(prescPiramide.descanso_s, 105)
+
+  const prescFartlek = prescripcionPorDefecto({
+    nombre: 'Fartlek 5K/10K: 5 min Zona 4 + 1:30 min Zona 2',
+    grupo: 'carrera',
+    tipo_registro: 'carrera',
+  })
+  assert.equal(prescFartlek.series_obj, 4)
+  assert.equal(prescFartlek.descanso_s, 90)
 })
 
 // --------------------------------------------------- 6. Auditoría Cero Secretos

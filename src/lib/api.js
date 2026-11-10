@@ -159,10 +159,38 @@ export function obtenerCandidatosSustitucion(sesionEjercicioId) {
   })
 }
 
-export function sustituirEjercicio({ sesionEjercicioId, nuevoEjercicioId }) {
+export function sustituirEjercicio(payload) {
   return request('/api/sesion', {
     method: 'POST',
-    body: { action: 'sustituir_ejercicio', sesionEjercicioId, nuevoEjercicioId },
+    body: { action: 'sustituir_ejercicio', ...payload },
+  })
+}
+
+export function obtenerCandidatosAnadir({ sesionPlanId, grupoSugerido }) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'candidatos_anadir', sesionPlanId, grupoSugerido },
+  })
+}
+
+export function anadirEjercicioSesion(payload) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'anadir_ejercicio', ...payload },
+  })
+}
+
+export function quitarEjercicioSesion(sesionEjercicioId) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'quitar_ejercicio', sesionEjercicioId },
+  })
+}
+
+export function editarEjercicioSesion(payload) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'editar_ejercicio_sesion', ...payload },
   })
 }
 

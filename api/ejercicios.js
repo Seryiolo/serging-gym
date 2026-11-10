@@ -179,7 +179,7 @@ export default withErrorHandling(async function ejerciciosHandler(req, res) {
     const impacto = Number.isFinite(impactoNum)
       ? Math.max(0, Math.min(3, Math.round(impactoNum)))
       : 0
-    const faseRodillaMin = impacto >= 3 ? 2 : 1
+    const faseRodillaMin = 1
     const patron = typeof body.patron === 'string' && body.patron.trim() ? body.patron.trim() : null
     const equipamiento =
       typeof body.equipamiento === 'string' && body.equipamiento.trim()

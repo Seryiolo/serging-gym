@@ -39,10 +39,24 @@ export default function ExerciseThumb({
           className="w-full h-full object-cover"
         />
       ) : (
-        <div className="flex flex-col items-center justify-center text-center p-1.5 select-none">
+        <div
+          className={`w-full h-full flex flex-col items-center justify-center text-center p-1.5 select-none ${
+            grupo === 'carrera' ? 'bg-[#FEF4EC]' : ''
+          }`}
+        >
           {renderFallbackIcon()}
-          <span className="text-[9px] font-medium text-[#6B7280] mt-1 leading-tight line-clamp-1">
-            {GRUPO_LABELS[grupo] || 'Ejercicio'}
+          <span
+            className={`text-[9.5px] font-semibold mt-1 leading-tight line-clamp-2 ${
+              grupo === 'carrera' ? 'text-[#C86626]' : 'text-[#6B7280]'
+            }`}
+          >
+            {grupo === 'carrera'
+              ? String(ejercicio?.nombre || '').toLowerCase().includes('pir')
+                ? 'Pirámide Pista'
+                : String(ejercicio?.nombre || '').toLowerCase().includes('fartlek')
+                  ? 'Fartlek Z4/Z2'
+                  : 'Protocolo Pista'
+              : GRUPO_LABELS[grupo] || 'Ejercicio'}
           </span>
         </div>
       )}

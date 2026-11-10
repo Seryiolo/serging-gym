@@ -27,6 +27,7 @@ import { hoyMadrid, lunesDe, addDias } from '../shared/fechas'
 import {
   formatDuracion,
   extraerDistanciaMetros,
+  extraerSecuenciaDistanciasMetros,
   formatSegundosInput,
 } from '../shared/numeros'
 
@@ -71,16 +72,25 @@ function construirEstadoEntrenoInicial({ sesion, bloques = [] }) {
       let defaultReps = ''
       let defaultPeso = ''
       let defaultSeg = ''
+      let secuenciaDistancias = null
 
       if (tipoReg === 'carrera') {
+        secuenciaDistancias = extraerSecuenciaDistanciasMetros(
+          item.reps_obj,
+          item.ejercicio?.nombre,
+          item.ejercicio?.instrucciones
+        )
         const distM =
-          ultima?.reps && Number(ultima.reps) >= 20
-            ? Number(ultima.reps)
-            : extraerDistanciaMetros(item.reps_obj, item.ejercicio?.nombre)
+          secuenciaDistancias && secuenciaDistancias.length > 0
+            ? secuenciaDistancias[0]
+            : ultima?.reps && Number(ultima.reps) >= 20
+              ? Number(ultima.reps)
+              : extraerDistanciaMetros(item.reps_obj, item.ejercicio?.nombre)
         defaultReps = String(distM)
-        defaultSeg = ultima?.segundos
-          ? formatSegundosInput(ultima.segundos, distM >= 200)
-          : ''
+        defaultSeg =
+          !secuenciaDistancias && ultima?.segundos
+            ? formatSegundosInput(ultima.segundos, distM >= 200)
+            : ''
       } else if (tipoReg === 'isometrico' || tipoReg === 'tiempo') {
         defaultSeg = ultima?.segundos
           ? String(ultima.segundos)
@@ -119,7 +129,10 @@ function construirEstadoEntrenoInicial({ sesion, bloques = [] }) {
       seriesPorItem[itemKey] = Array.from({ length: totalSeries }, (_, idx) => ({
         ronda: idx + 1,
         lado: 'ambos',
-        repsTexto: defaultReps,
+        repsTexto:
+          secuenciaDistancias && secuenciaDistancias.length > 0
+            ? String(secuenciaDistancias[idx % secuenciaDistancias.length])
+            : defaultReps,
         pesoTexto: defaultPeso,
         segTexto: defaultSeg,
         completada: false,
@@ -345,7 +358,42 @@ export default function App() {
         entrenoActivo.sesion?.id &&
         String(entrenoActivo.sesion.id) === String(detalleSesion.sesion?.id)
       ) {
-        handleReanudarEntreno()
+        const baseFresca = construirEstadoEntrenoInicial(detalleSesion)
+        const itemAnteriorPorKey = new Map()
+        for (const b of entrenoActivo.bloques || []) {
+          for (const it of b.items || []) {
+            const k = String(it.sesion_ejercicio_id ?? `${b.orden}_${it.orden}`)
+            itemAnteriorPorKey.set(k, it)
+          }
+        }
+        const seriesFusionadas = { ...baseFresca.seriesPorItem }
+        for (const b of detalleSesion.bloques || []) {
+          for (const it of b.items || []) {
+            const k = String(it.sesion_ejercicio_id ?? `${b.orden}_${it.orden}`)
+            const ant = itemAnteriorPorKey.get(k)
+            const seriesAnt = entrenoActivo.seriesPorItem?.[k]
+            if (
+              ant &&
+              seriesAnt &&
+              Number(ant.ejercicio?.id) === Number(it.ejercicio?.id) &&
+              Number(ant.series_obj) === Number(it.series_obj)
+            ) {
+              seriesFusionadas[k] = seriesAnt
+            }
+          }
+        }
+        const acumulado = entrenoActivo.duracionAcumuladaSeg || 0
+        setEntrenoActivo((prev) => ({
+          ...prev,
+          sesion: detalleSesion.sesion,
+          bloques: detalleSesion.bloques,
+          seriesPorItem: seriesFusionadas,
+          enPausa: false,
+          inicioEpochMs: Date.now() - acumulado * 1000,
+        }))
+        setNowMs(Date.now())
+        setPreviewSesionId(null)
+        setEntrenoMinimizado(false)
         return
       }
       if (entrenoActivo) {
@@ -357,7 +405,7 @@ export default function App() {
       }
       setPendientePreparate(detalleSesion)
     },
-    [entrenoActivo, handleReanudarEntreno]
+    [entrenoActivo]
   )
 
   const handleFinishPreparate = useCallback(() => {

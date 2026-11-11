@@ -164,8 +164,8 @@ export default withErrorHandling(async function ejerciciosHandler(req, res) {
     const grupo = String(body.grupo || '').trim().toLowerCase()
     const tipoRegistro = String(body.tipo_registro || 'fuerza').trim().toLowerCase()
 
-    if (nombre.length < 2) {
-      return sendJson(res, 400, { error: 'El nombre del ejercicio debe tener al menos 2 caracteres.' })
+    if (nombre.length < 2 || nombre.length > 120) {
+      return sendJson(res, 400, { error: 'El nombre del ejercicio debe tener entre 2 y 120 caracteres.' })
     }
     if (!GRUPOS_VALIDOS.has(grupo)) {
       return sendJson(res, 400, { error: 'Grupo muscular o categoría no válida.' })
@@ -180,14 +180,14 @@ export default withErrorHandling(async function ejerciciosHandler(req, res) {
       ? Math.max(0, Math.min(3, Math.round(impactoNum)))
       : 0
     const faseRodillaMin = 1
-    const patron = typeof body.patron === 'string' && body.patron.trim() ? body.patron.trim() : null
+    const patron = typeof body.patron === 'string' && body.patron.trim() ? body.patron.trim().slice(0, 80) : null
     const equipamiento =
       typeof body.equipamiento === 'string' && body.equipamiento.trim()
-        ? body.equipamiento.trim()
+        ? body.equipamiento.trim().slice(0, 120)
         : null
     const instrucciones =
       typeof body.instrucciones === 'string' && body.instrucciones.trim()
-        ? body.instrucciones.trim()
+        ? body.instrucciones.trim().slice(0, 2000)
         : null
 
     const videoMeta = resolveVideoMetadata(body.video_url, body.poster_url)

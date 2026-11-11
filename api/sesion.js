@@ -257,9 +257,9 @@ export default withErrorHandling(async function sesionHandler(req, res) {
     const molestiaDurante = clampMolestia(body.molestiaDurante)
     const molestiaDespues = clampMolestia(body.molestiaDespues)
     const hinchazon = normalizeHinchazon(body.hinchazonDiaSiguiente)
-    const nota = typeof body.nota === 'string' && body.nota.trim() ? body.nota.trim() : null
+    const nota = typeof body.nota === 'string' && body.nota.trim() ? body.nota.trim().slice(0, 2000) : null
 
-    const rawSeries = Array.isArray(body.series) ? body.series : []
+    const rawSeries = Array.isArray(body.series) ? body.series.slice(0, 400) : []
     const seriesLimpias = []
     for (let i = 0; i < rawSeries.length; i++) {
       const s = rawSeries[i]

@@ -171,20 +171,48 @@ export async function readBatch(statements) {
 }
 
 /**
- * Ejecuta multiples sentencias de escritura de forma atomica (BEGIN ... COMMIT)
- * en un unico roundtrip HTTP /v2/pipeline con claves foraneas activadas.
+ * Ejecuta multiples sentencias de escritura de forma ATOMICA en un unico roundtrip.
+ * Usa una peticion `batch` de Hrana con condiciones: si una sentencia falla, las siguientes
+ * se omiten, no se hace COMMIT y se ejecuta ROLLBACK (verificado contra Turso).
  */
 export async function batch(statements) {
   if (!Array.isArray(statements) || statements.length === 0) return []
   const normalized = statements.map(normalizeStatement)
-  const requests = [
+  const n = normalized.length
+
+  const toStmt = (s) => buildExecuteRequest(s.sql, s.args).stmt
+  const steps = [{ stmt: { sql: 'BEGIN' } }]
+  normalized.forEach((s, i) => {
+    steps.push({ stmt: toStmt(s), condition: { type: 'ok', step: i } })
+  })
+  steps.push({ stmt: { sql: 'COMMIT' }, condition: { type: 'ok', step: n } })
+  steps.push({
+    stmt: { sql: 'ROLLBACK' },
+    condition: { type: 'not', cond: { type: 'ok', step: n + 1 } },
+  })
+
+  const results = await sendPipeline([
     buildExecuteRequest('PRAGMA foreign_keys = ON'),
-    buildExecuteRequest('BEGIN'),
-    ...normalized.map((s) => buildExecuteRequest(s.sql, s.args)),
-    buildExecuteRequest('COMMIT'),
+    { type: 'batch', batch: { steps } },
     { type: 'close' },
-  ]
-  const results = await sendPipeline(requests)
-  // Indices: 0 = PRAGMA, 1 = BEGIN, 2..(2 + n - 1) = statements, 2 + n = COMMIT
-  return normalized.map((_, idx) => decodeExecuteResult(results[idx + 2]?.response?.result))
+  ])
+
+  const res = results[1]?.response?.result
+  const stepErrors = res?.step_errors || []
+  const stepResults = res?.step_results || []
+  for (let i = 0; i < stepErrors.length; i++) {
+    if (stepErrors[i]) {
+      const msg = stepErrors[i].message || 'Error SQL desconocido en Turso'
+      const code = stepErrors[i].code || 'SQL_ERROR'
+      const err = new Error(`Turso SQL error (${code}): ${msg}`)
+      err.code = code
+      throw err
+    }
+  }
+  if (!stepResults[n + 1]) {
+    throw new Error('La transacción no se confirmó (COMMIT no ejecutado).')
+  }
+
+  // Indices: 0 = BEGIN, 1..n = sentencias, n + 1 = COMMIT, n + 2 = ROLLBACK
+  return normalized.map((_, idx) => decodeExecuteResult(stepResults[idx + 1]))
 }

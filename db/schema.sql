@@ -259,4 +259,12 @@ CREATE TABLE IF NOT EXISTS peso_corporal (
   UNIQUE (user_id, fecha)
 );
 
+-- ---------------------------------------------------------- SEGURIDAD
+-- Intentos fallidos de login (clave = sha256(ip|email)), ventana de 10 min
+CREATE TABLE IF NOT EXISTS login_intentos (
+  clave    TEXT PRIMARY KEY,
+  intentos INTEGER NOT NULL,
+  desde    INTEGER NOT NULL
+);
+
 INSERT OR REPLACE INTO meta (clave, valor) VALUES ('schema_version', '2');

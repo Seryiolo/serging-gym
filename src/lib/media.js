@@ -74,11 +74,33 @@ export const IMPACTO_LABELS = {
 /**
  * Emite un doble tono suave con Web Audio API cuando termina el descanso.
  */
-export function playRestBeep() {
+let sharedAudioCtx = null
+
+/**
+ * iOS/Safari solo permite sonido si el AudioContext se crea o reanuda dentro de un gesto del usuario.
+ * Se llama al pulsar "completar serie" (inicio del descanso) para dejarlo listo antes del pitido.
+ */
+export function unlockAudio() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext
     if (!AudioCtx) return
-    const ctx = new AudioCtx()
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioCtx()
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {})
+    }
+  } catch {
+    // Silencioso si el navegador bloquea Web Audio
+  }
+}
+
+export function playRestBeep() {
+  try {
+    unlockAudio()
+    const ctx = sharedAudioCtx
+    if (!ctx) return
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {})
     const now = ctx.currentTime
 
     const playTone = (freq, startOffset, duration) => {
@@ -97,9 +119,6 @@ export function playRestBeep() {
 
     playTone(660, 0, 0.14)
     playTone(880, 0.17, 0.22)
-    setTimeout(() => {
-      ctx.close().catch(() => {})
-    }, 600)
   } catch {
     // Silencioso si el navegador bloquea Web Audio
   }

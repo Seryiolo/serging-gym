@@ -30,7 +30,7 @@ import {
   formatearMarcaLogica,
 } from '../../shared/numeros'
 import { formatCorto } from '../../shared/fechas'
-import { playRestBeep } from '../lib/media'
+import { playRestBeep, unlockAudio } from '../lib/media'
 
 function agruparSuperseriesActivo(items = []) {
   const grupos = []
@@ -133,6 +133,7 @@ export default function EntrenoActivoView({
   }, [descansoActivo])
 
   const iniciarDescanso = (segundos) => {
+    unlockAudio()
     const s = Number(segundos) > 0 ? Number(segundos) : 60
     descansoFinRef.current = Date.now() + s * 1000
     setDescansoTotal(s)

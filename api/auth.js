@@ -4,6 +4,7 @@
  * POST -> login (con configuracion inicial automatica si password_hash IS NULL),
  *         register, logout, admin_users y approve_user.
  */
+import { createHash } from 'node:crypto'
 import {
   buildClearCookie,
   buildSessionCookie,
@@ -19,39 +20,49 @@ import { hoyMadrid } from '../shared/fechas.js'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// Protección ligera contra fuerza bruta en login (ventana de 10 min)
+// Protección contra fuerza bruta en login. Persistida en Turso (tabla login_intentos) porque
+// en serverless cada instancia tiene su propia memoria y un contador en RAM se podría esquivar.
 const LOGIN_WINDOW_MS = 10 * 60 * 1000
 const MAX_FAILED_ATTEMPTS = 8
-const failedLoginMap = new Map()
 
 function getRateLimitKey(req, email) {
   const xff = req?.headers?.['x-forwarded-for']
   const ip = (Array.isArray(xff) ? xff[0] : String(xff || '')).split(',')[0].trim() || 'local'
-  return `${ip}:${email}`
+  return createHash('sha256').update(`${ip}|${email}`).digest('hex')
 }
 
-function isRateLimited(key) {
-  const entry = failedLoginMap.get(key)
-  if (!entry) return false
-  if (Date.now() - entry.firstAt > LOGIN_WINDOW_MS) {
-    failedLoginMap.delete(key)
-    return false
+async function isRateLimited(key) {
+  try {
+    const row = await queryOne('SELECT intentos, desde FROM login_intentos WHERE clave = ? LIMIT 1', [key])
+    if (!row) return false
+    if (Date.now() - row.desde > LOGIN_WINDOW_MS) return false
+    return row.intentos >= MAX_FAILED_ATTEMPTS
+  } catch {
+    return false // Si la tabla no está disponible, no bloquear el acceso legítimo
   }
-  return entry.count >= MAX_FAILED_ATTEMPTS
 }
 
-function recordFailedLogin(key) {
+async function recordFailedLogin(key) {
   const now = Date.now()
-  const entry = failedLoginMap.get(key)
-  if (!entry || now - entry.firstAt > LOGIN_WINDOW_MS) {
-    failedLoginMap.set(key, { count: 1, firstAt: now })
-  } else {
-    entry.count += 1
+  try {
+    await execute(
+      `INSERT INTO login_intentos (clave, intentos, desde) VALUES (?, 1, ?)
+       ON CONFLICT(clave) DO UPDATE SET
+         intentos = CASE WHEN ? - desde > ? THEN 1 ELSE intentos + 1 END,
+         desde    = CASE WHEN ? - desde > ? THEN ? ELSE desde END`,
+      [key, now, now, LOGIN_WINDOW_MS, now, LOGIN_WINDOW_MS, now],
+    )
+  } catch {
+    // Ignorar fallo de registro de intentos
   }
 }
 
-function clearFailedLogin(key) {
-  failedLoginMap.delete(key)
+async function clearFailedLogin(key) {
+  try {
+    await execute('DELETE FROM login_intentos WHERE clave = ?', [key])
+  } catch {
+    // Ignorar
+  }
 }
 
 export default withErrorHandling(async function authHandler(req, res) {
@@ -159,7 +170,7 @@ export default withErrorHandling(async function authHandler(req, res) {
   }
 
   const rateKey = getRateLimitKey(req, email)
-  if (isRateLimited(rateKey)) {
+  if (await isRateLimited(rateKey)) {
     return sendJson(res, 429, {
       error: 'Demasiados intentos seguidos. Espera unos minutos antes de volver a intentarlo.',
     })
@@ -172,7 +183,10 @@ export default withErrorHandling(async function authHandler(req, res) {
 
   if (!existing) {
     if (action === 'register') {
-      const nombreFinal = nombreInput || email.split('@')[0]
+      if (password.length < 8) {
+        return sendJson(res, 400, { error: 'Para crear una cuenta nueva usa una contraseña de al menos 8 caracteres.' })
+      }
+      const nombreFinal = (nombreInput || email.split('@')[0]).slice(0, 80)
       const hashed = hashPassword(password)
       await execute(
         `INSERT INTO users (email, nombre, password_hash, rol, estado)
@@ -237,11 +251,11 @@ export default withErrorHandling(async function authHandler(req, res) {
   }
 
   if (!verifyPassword(password, existing.password_hash)) {
-    recordFailedLogin(rateKey)
+    await recordFailedLogin(rateKey)
     return sendJson(res, 401, { error: 'Contraseña incorrecta' })
   }
 
-  clearFailedLogin(rateKey)
+  await clearFailedLogin(rateKey)
 
   const userPayload = {
     id: existing.id,

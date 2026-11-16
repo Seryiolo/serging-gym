@@ -201,6 +201,34 @@ export function registrarHinchazonPendiente({ entrenoId, hinchazon }) {
   })
 }
 
+export function obtenerOpcionesCambioSesion() {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'opciones_cambio_sesion' },
+  })
+}
+
+export function guardarRutinaFavorita(payload) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'guardar_rutina_favorita', ...payload },
+  })
+}
+
+export function eliminarRutinaFavorita(rutinaId) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'eliminar_rutina_favorita', rutinaId },
+  })
+}
+
+export function cambiarSesionDia(payload) {
+  return request('/api/sesion', {
+    method: 'POST',
+    body: { action: 'cambiar_sesion_dia', ...payload },
+  })
+}
+
 // ---------------------------------------------------- 5. Historico Ejercicio
 export function getEjercicioHistorico(ejercicioId) {
   return request(`/api/ejercicio-historico?ejercicioId=${encodeURIComponent(ejercicioId)}`)

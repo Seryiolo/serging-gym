@@ -16,6 +16,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Star,
 } from 'lucide-react'
 import {
   getSesion,
@@ -28,6 +29,10 @@ import {
   moverSesion,
   cambiarEstadoSesion,
   eliminarEntreno,
+  obtenerOpcionesCambioSesion,
+  guardarRutinaFavorita,
+  eliminarRutinaFavorita,
+  cambiarSesionDia,
 } from '../lib/api'
 import ExerciseThumb from '../components/ExerciseThumb'
 import { formatLargo } from '../../shared/fechas'
@@ -101,6 +106,29 @@ export default function SesionPreviewView({
   const [modalAjustes, setModalAjustes] = useState(false)
   const [nuevaFecha, setNuevaFecha] = useState('')
   const [guardandoAjuste, setGuardandoAjuste] = useState(false)
+
+  // Modal cambiar sesión / rutinas favoritas / crear entrenamiento a mano
+  const [modalCambiarSesion, setModalCambiarSesion] = useState(false)
+  const [tabCambio, setTabCambio] = useState('plantilla') // 'plantilla' | 'favoritas' | 'manual'
+  const [cargandoOpciones, setCargandoOpciones] = useState(false)
+  const [plantillasSistema, setPlantillasSistema] = useState([])
+  const [rutinasFavoritas, setRutinasFavoritas] = useState([])
+  const [catalogoCompleto, setCatalogoCompleto] = useState([])
+  const [aplicandoCambio, setAplicandoCambio] = useState(false)
+
+  // Estado creador manual de sesión
+  const [manualTitulo, setManualTitulo] = useState('')
+  const [manualTipo, setManualTipo] = useState('superior')
+  const [manualItems, setManualItems] = useState([])
+  const [manualGuardarFav, setManualGuardarFav] = useState(true)
+  const [manualGrupoFiltro, setManualGrupoFiltro] = useState('todos')
+  const [manualBusqueda, setManualBusqueda] = useState('')
+
+  // Modal guardar sesión actual como rutina favorita
+  const [modalGuardarFavActual, setModalGuardarFavActual] = useState(false)
+  const [nombreFavActual, setNombreFavActual] = useState('')
+  const [guardandoFavActual, setGuardandoFavActual] = useState(false)
+  const [mensajeExitoFav, setMensajeExitoFav] = useState('')
 
   const cargarSesion = useCallback(async () => {
     setCargando(true)
@@ -374,6 +402,179 @@ export default function SesionPreviewView({
     setColapsados((prev) => ({ ...prev, [orden]: !prev[orden] }))
   }
 
+  const abrirModalCambiarSesion = async (tabInicial = 'plantilla') => {
+    setTabCambio(tabInicial)
+    setModalCambiarSesion(true)
+    setCargandoOpciones(true)
+    try {
+      const res = await obtenerOpcionesCambioSesion()
+      setPlantillasSistema(res?.plantillas || [])
+      setRutinasFavoritas(res?.rutinasFavoritas || [])
+      setCatalogoCompleto(res?.catalogo || [])
+    } catch {
+      // Mantiene las listas previas si falla la red
+    } finally {
+      setCargandoOpciones(false)
+    }
+  }
+
+  const handleAplicarPlantilla = async (plantillaId) => {
+    if (!sesion?.id) return
+    setAplicandoCambio(true)
+    try {
+      await cambiarSesionDia({
+        sesionPlanId: sesion.id,
+        modo: 'plantilla',
+        plantillaId,
+      })
+      setModalCambiarSesion(false)
+      await cargarSesion()
+      onSessionUpdated?.()
+    } catch (err) {
+      alert(err.message || 'No se pudo cambiar la sesión por la plantilla elegida')
+    } finally {
+      setAplicandoCambio(false)
+    }
+  }
+
+  const handleAplicarRutinaFavorita = async (rutinaId) => {
+    if (!sesion?.id) return
+    setAplicandoCambio(true)
+    try {
+      await cambiarSesionDia({
+        sesionPlanId: sesion.id,
+        modo: 'favorita',
+        rutinaFavoritaId: rutinaId,
+      })
+      setModalCambiarSesion(false)
+      await cargarSesion()
+      onSessionUpdated?.()
+    } catch (err) {
+      alert(err.message || 'No se pudo aplicar la rutina favorita')
+    } finally {
+      setAplicandoCambio(false)
+    }
+  }
+
+  const handleEliminarRutinaFavorita = async (rutinaId) => {
+    try {
+      await eliminarRutinaFavorita(rutinaId)
+      setRutinasFavoritas((prev) => prev.filter((r) => r.id !== rutinaId))
+    } catch (err) {
+      alert(err.message || 'No se pudo eliminar la rutina favorita')
+    }
+  }
+
+  const agregarEjercicioManual = (ej) => {
+    const presc = ej.prescripcion_sugerida || {
+      series_obj: 3,
+      reps_obj: '8-10',
+      descanso_s: 90,
+      nota: null,
+    }
+    setManualItems((prev) => [
+      ...prev,
+      {
+        uid: `${ej.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        ejercicio_id: ej.id,
+        nombre: ej.nombre,
+        grupo: ej.grupo,
+        series_obj: presc.series_obj || 3,
+        reps_obj: presc.reps_obj || '8-10',
+        descanso_s: presc.descanso_s ?? 90,
+        nota: presc.nota || '',
+      },
+    ])
+  }
+
+  const actualizarItemManual = (uid, campo, valor) => {
+    setManualItems((prev) =>
+      prev.map((it) => (it.uid === uid ? { ...it, [campo]: valor } : it)),
+    )
+  }
+
+  const quitarItemManual = (uid) => {
+    setManualItems((prev) => prev.filter((it) => it.uid !== uid))
+  }
+
+  const handleAplicarYGuardarManual = async (e) => {
+    e.preventDefault()
+    if (!sesion?.id) return
+    if (manualItems.length === 0) {
+      alert('Añade al menos un ejercicio a tu entrenamiento.')
+      return
+    }
+    const tituloFinal = manualTitulo.trim() || 'Entrenamiento Personalizado'
+    setAplicandoCambio(true)
+    try {
+      await cambiarSesionDia({
+        sesionPlanId: sesion.id,
+        modo: 'manual',
+        titulo: tituloFinal,
+        tipo: manualTipo,
+        descripcion: `Entrenamiento personalizado (${manualItems.length} ejercicios)`,
+        items: manualItems.map((it) => ({
+          ejercicio_id: it.ejercicio_id,
+          bloque_orden: 1,
+          bloque_nombre: 'Bloque Principal',
+          bloque_tipo:
+            manualTipo === 'carrera'
+              ? 'carrera'
+              : manualTipo === 'pliometria_agilidad'
+                ? 'plyo'
+                : 'fuerza',
+          series_obj: Number(it.series_obj) || 3,
+          reps_obj: String(it.reps_obj || '8-10'),
+          descanso_s: Number(it.descanso_s ?? 90),
+          nota: it.nota ? String(it.nota).trim() : null,
+        })),
+        guardarEnFavoritos: manualGuardarFav,
+      })
+      setModalCambiarSesion(false)
+      setManualItems([])
+      setManualTitulo('')
+      await cargarSesion()
+      onSessionUpdated?.()
+    } catch (err) {
+      alert(err.message || 'No se pudo aplicar el entrenamiento personalizado')
+    } finally {
+      setAplicandoCambio(false)
+    }
+  }
+
+  const handleGuardarSesionActualEnFavoritos = async (e) => {
+    e.preventDefault()
+    if (!sesion?.id) return
+    const nombre = nombreFavActual.trim() || sesion.titulo
+    setGuardandoFavActual(true)
+    try {
+      await guardarRutinaFavorita({
+        nombre,
+        desdeSesionPlanId: sesion.id,
+      })
+      setModalGuardarFavActual(false)
+      setMensajeExitoFav('Guardada en Mis Rutinas Favoritas')
+      setTimeout(() => setMensajeExitoFav(''), 3000)
+    } catch (err) {
+      alert(err.message || 'No se pudo guardar la sesión en favoritos')
+    } finally {
+      setGuardandoFavActual(false)
+    }
+  }
+
+  const catalogoManualFiltrado = useMemo(() => {
+    const q = manualBusqueda.trim().toLowerCase()
+    return (catalogoCompleto || []).filter((ej) => {
+      if (manualGrupoFiltro !== 'todos' && ej.grupo !== manualGrupoFiltro) return false
+      if (!q) return true
+      return (
+        ej.nombre?.toLowerCase().includes(q) ||
+        ej.grupo?.toLowerCase().includes(q) ||
+        ej.equipamiento?.toLowerCase().includes(q)
+      )
+    })
+  }, [catalogoCompleto, manualGrupoFiltro, manualBusqueda])
+
   return (
     <div className="min-h-dvh bg-[#F5F5F7] flex flex-col pb-28">
       {/* Cabecera ambar/dorada idéntica a f_007.jpg y sheet_3.jpg */}
@@ -390,14 +591,34 @@ export default function SesionPreviewView({
 
           {sesion && (
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => abrirModalCambiarSesion('plantilla')}
+                className="h-8 px-3 rounded-full bg-white/90 border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] flex items-center gap-1.5 shadow-2xs hover:bg-white transition whitespace-nowrap"
+              >
+                <RefreshCw size={12} className="text-[#EE8641] shrink-0" />
+                <span>Cambiar sesión</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNombreFavActual(sesion.titulo || 'Mi rutina favorita')
+                  setModalGuardarFavActual(true)
+                }}
+                className="h-8 px-2.5 rounded-full bg-white/85 border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] flex items-center gap-1 shadow-2xs hover:bg-white transition"
+                title="Guardar esta sesión en Mis Rutinas Favoritas"
+              >
+                <Star size={12} className="text-amber-500 shrink-0" />
+                <span className="hidden xs:inline">Favorita</span>
+              </button>
               {onOpenReorganizarSemana && (
                 <button
                   type="button"
                   onClick={() => onOpenReorganizarSemana(sesion.fecha)}
-                  className="h-8 px-3 rounded-full bg-white/85 border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] flex items-center gap-1.5 shadow-2xs hover:bg-white transition whitespace-nowrap"
+                  className="h-8 px-2.5 rounded-full bg-white/85 border border-[#D8DCE3] text-[11.5px] font-semibold text-[#1E2433] flex items-center gap-1 shadow-2xs hover:bg-white transition whitespace-nowrap"
                 >
                   <ArrowUpDown size={12} className="text-[#EE8641] shrink-0" />
-                  <span>Mover día</span>
+                  <span className="hidden sm:inline">Mover día</span>
                 </button>
               )}
               <button
@@ -414,6 +635,11 @@ export default function SesionPreviewView({
 
         {sesion && (
           <div className="px-5 pt-1 pb-5">
+            {mensajeExitoFav && (
+              <div className="mb-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                <CheckCircle2 size={12} /> {mensajeExitoFav}
+              </div>
+            )}
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-[11px] font-medium capitalize text-[#4B5563]">
                 {formatLargo(sesion.fecha)}
@@ -1238,6 +1464,440 @@ export default function SesionPreviewView({
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Guardar Sesión Actual en Mis Rutinas Favoritas */}
+      {modalGuardarFavActual && sesion && (
+        <div className="fixed inset-0 z-50 bg-[#1E2433]/45 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Star size={18} className="text-amber-500" />
+                <h3 className="text-base font-semibold text-[#1E2433]">
+                  Guardar en Mis Rutinas Favoritas
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalGuardarFavActual(false)}
+                className="w-8 h-8 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#4B5563]"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <p className="text-xs text-[#6B7280] leading-relaxed">
+              Se guardarán todos los ejercicios, series, repeticiones y descansos actuales de esta sesión para que puedas reutilizarla cualquier día con un toque.
+            </p>
+            <form onSubmit={handleGuardarSesionActualEnFavoritos} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-[#6B7280] mb-1">
+                  Nombre de la rutina favorita
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={nombreFavActual}
+                  onChange={(e) => setNombreFavActual(e.target.value)}
+                  placeholder="Ej: Mi Pierna Favorita, Torso Express..."
+                  className="w-full h-11 rounded-xl bg-[#F5F5F7] border border-[#E5E7EB] px-3 text-sm text-[#1E2433]"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={guardandoFavActual}
+                className="w-full h-11 rounded-full bg-[#242938] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <Star size={14} className="text-amber-400" />
+                {guardandoFavActual ? 'Guardando...' : 'Guardar en Favoritas'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cambiar Sesión del Día / Mis Rutinas Favoritas / Crear a Mano */}
+      {modalCambiarSesion && sesion && (
+        <div className="fixed inset-0 z-50 bg-[#1E2433]/45 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-[520px] max-h-[88dvh] rounded-t-3xl sm:rounded-3xl flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 pt-5 pb-3 border-b border-[#ECEEF2] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10.5px] uppercase tracking-wider text-[#EE8641] font-semibold">
+                    Adaptar día · {formatLargo(sesion.fecha)}
+                  </span>
+                  <h3 className="text-base font-semibold text-[#1E2433]">
+                    Cambiar o crear entrenamiento
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalCambiarSesion(false)}
+                  className="w-8 h-8 rounded-full bg-[#F5F5F7] flex items-center justify-center text-[#4B5563]"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 bg-[#F5F5F7] p-1 rounded-2xl">
+                {[
+                  { id: 'plantilla', label: 'Por Plantilla' },
+                  { id: 'favoritas', label: `Favoritas (${rutinasFavoritas.length})` },
+                  { id: 'manual', label: '+ Crear a mano' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTabCambio(t.id)}
+                    className={`h-8 rounded-xl text-[11.5px] font-semibold transition ${
+                      tabCambio === t.id
+                        ? 'bg-white text-[#1E2433] shadow-2xs'
+                        : 'text-[#6B7280] hover:text-[#1E2433]'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {cargandoOpciones ? (
+                <div className="py-10 text-center text-xs text-[#6B7280]">
+                  Cargando plantillas, rutinas favoritas y catálogo...
+                </div>
+              ) : tabCambio === 'plantilla' ? (
+                <div className="space-y-2.5">
+                  <p className="text-xs text-[#6B7280] leading-relaxed">
+                    Elige qué tipo de sesión quieres hacer hoy. El sistema generará el entrenamiento aplicando tus reglas de rotación semanal y fase de rodilla.
+                  </p>
+                  {plantillasSistema.map((pl) => {
+                    const esActual = Number(sesion.plantilla_id) === Number(pl.id)
+                    return (
+                      <div
+                        key={pl.id}
+                        className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                          esActual
+                            ? 'bg-[#FEF4EC] border-[#EE8641]/50'
+                            : 'bg-[#F9FAFB] border-[#E5E7EB]'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13.5px] font-semibold text-[#1E2433] truncate">
+                              {pl.nombre}
+                            </span>
+                            {esActual && (
+                              <span className="px-2 py-0.5 rounded-full bg-[#EE8641]/15 text-[#EE8641] text-[10px] font-semibold shrink-0">
+                                Actual
+                              </span>
+                            )}
+                          </div>
+                          {pl.descripcion && (
+                            <p className="text-[11.5px] text-[#6B7280] mt-0.5 line-clamp-2">
+                              {pl.descripcion}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={aplicandoCambio}
+                          onClick={() => handleAplicarPlantilla(pl.id)}
+                          className="h-8 px-3.5 rounded-full bg-[#242938] text-white text-[11px] font-semibold shrink-0 hover:opacity-90 transition"
+                        >
+                          {esActual ? 'Regenerar' : 'Elegir'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : tabCambio === 'favoritas' ? (
+                <div className="space-y-2.5">
+                  {rutinasFavoritas.length === 0 ? (
+                    <div className="py-8 px-4 text-center bg-[#F9FAFB] rounded-2xl border border-[#ECEEF2] space-y-2">
+                      <Star size={24} className="mx-auto text-amber-400" />
+                      <p className="text-xs font-medium text-[#1E2433]">
+                        Aún no tienes rutinas favoritas guardadas
+                      </p>
+                      <p className="text-[11.5px] text-[#6B7280]">
+                        Puedes guardar cualquier sesión pulsando el botón «Favorita» arriba o crear una nueva desde la pestaña «+ Crear a mano».
+                      </p>
+                    </div>
+                  ) : (
+                    rutinasFavoritas.map((rut) => (
+                      <div
+                        key={rut.id}
+                        className="p-3.5 rounded-2xl bg-[#F9FAFB] border border-[#E5E7EB] space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-semibold text-[#1E2433]">
+                              {rut.nombre}
+                            </h4>
+                            <p className="text-[11px] text-[#6B7280]">
+                              {rut.items?.length || 0} ejercicios ·{' '}
+                              <span className="capitalize">{rut.tipo}</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEliminarRutinaFavorita(rut.id)}
+                              className="w-8 h-8 rounded-full bg-white border border-[#E5E7EB] flex items-center justify-center text-[#6B7280] hover:text-red-600"
+                              title="Eliminar rutina favorita"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={aplicandoCambio}
+                              onClick={() => handleAplicarRutinaFavorita(rut.id)}
+                              className="h-8 px-3.5 rounded-full bg-[#242938] text-white text-[11px] font-semibold"
+                            >
+                              Usar hoy
+                            </button>
+                          </div>
+                        </div>
+                        {rut.items?.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {rut.items.slice(0, 6).map((it, idx) => (
+                              <span
+                                key={`${rut.id}_${idx}`}
+                                className="px-2 py-0.5 rounded-full bg-white border border-[#E5E7EB] text-[10.5px] text-[#4B5563]"
+                              >
+                                {it.ejercicio_nombre} ({it.series_obj}×{it.reps_obj})
+                              </span>
+                            ))}
+                            {rut.items.length > 6 && (
+                              <span className="px-2 py-0.5 text-[10.5px] text-[#6B7280]">
+                                +{rut.items.length - 6} más
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <form onSubmit={handleAplicarYGuardarManual} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#6B7280] mb-1">
+                        Nombre del entrenamiento
+                      </label>
+                      <input
+                        type="text"
+                        value={manualTitulo}
+                        onChange={(e) => setManualTitulo(e.target.value)}
+                        placeholder="Ej: Torso Express, Pierna Glúteo..."
+                        className="w-full h-10 rounded-xl bg-[#F5F5F7] border border-[#E5E7EB] px-3 text-xs text-[#1E2433]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#6B7280] mb-1">
+                        ¿Qué vas a entrenar?
+                      </label>
+                      <select
+                        value={manualTipo}
+                        onChange={(e) => setManualTipo(e.target.value)}
+                        className="w-full h-10 rounded-xl bg-[#F5F5F7] border border-[#E5E7EB] px-3 text-xs text-[#1E2433]"
+                      >
+                        <option value="superior">Tren Superior (Gym)</option>
+                        <option value="inferior">Pierna / Tren Inferior</option>
+                        <option value="carrera">Carrera / Pista / Cardio</option>
+                        <option value="pliometria_agilidad">Pliometría y Agilidad</option>
+                        <option value="movilidad_core">Movilidad y Core</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Ejercicios ya elegidos en el entrenamiento manual */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-[#1E2433]">
+                        Ejercicios seleccionados ({manualItems.length})
+                      </span>
+                      {manualItems.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setManualItems([])}
+                          className="text-[11px] text-red-600 hover:underline"
+                        >
+                          Vaciar lista
+                        </button>
+                      )}
+                    </div>
+
+                    {manualItems.length === 0 ? (
+                      <div className="p-3 rounded-xl bg-[#F9FAFB] border border-dashed border-[#D1D5DB] text-center text-[11.5px] text-[#6B7280]">
+                        Toca «+ Añadir» en los ejercicios de abajo para armar tu sesión.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {manualItems.map((it, idx) => (
+                          <div
+                            key={it.uid}
+                            className="p-2.5 rounded-xl bg-[#FEF4EC]/70 border border-[#F4985C]/40 space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-[#1E2433] truncate">
+                                {idx + 1}. {it.nombre}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => quitarItemManual(it.uid)}
+                                className="text-[#6B7280] hover:text-red-600"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              <div>
+                                <span className="block text-[9.5px] text-[#6B7280]">Series</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={20}
+                                  value={it.series_obj}
+                                  onChange={(e) =>
+                                    actualizarItemManual(it.uid, 'series_obj', e.target.value)
+                                  }
+                                  className="w-full h-7 rounded-lg bg-white border border-[#E5E7EB] px-2 text-[11px] font-semibold text-[#1E2433]"
+                                />
+                              </div>
+                              <div>
+                                <span className="block text-[9.5px] text-[#6B7280]">Reps / Obj</span>
+                                <input
+                                  type="text"
+                                  value={it.reps_obj}
+                                  onChange={(e) =>
+                                    actualizarItemManual(it.uid, 'reps_obj', e.target.value)
+                                  }
+                                  className="w-full h-7 rounded-lg bg-white border border-[#E5E7EB] px-2 text-[11px] text-[#1E2433]"
+                                />
+                              </div>
+                              <div>
+                                <span className="block text-[9.5px] text-[#6B7280]">Desc (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={600}
+                                  step={5}
+                                  value={it.descanso_s}
+                                  onChange={(e) =>
+                                    actualizarItemManual(it.uid, 'descanso_s', e.target.value)
+                                  }
+                                  className="w-full h-7 rounded-lg bg-white border border-[#E5E7EB] px-2 text-[11px] text-[#1E2433]"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Buscador y filtro del catálogo para ir añadiendo */}
+                  <div className="pt-2 border-t border-[#ECEEF2] space-y-2">
+                    <div className="relative">
+                      <Search
+                        size={14}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]"
+                      />
+                      <input
+                        type="text"
+                        value={manualBusqueda}
+                        onChange={(e) => setManualBusqueda(e.target.value)}
+                        placeholder="Buscar ejercicio para añadir..."
+                        className="w-full h-9 pl-8 pr-3 rounded-xl bg-[#F5F5F7] border border-[#E5E7EB] text-xs text-[#1E2433]"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
+                      {[
+                        ['todos', 'Todos'],
+                        ['pecho', 'Pecho'],
+                        ['espalda', 'Espalda'],
+                        ['hombro', 'Hombro'],
+                        ['biceps', 'Bíceps'],
+                        ['triceps', 'Tríceps'],
+                        ['cuadriceps', 'Cuádriceps'],
+                        ['isquios', 'Isquios'],
+                        ['gluteo', 'Glúteo'],
+                        ['gemelo', 'Gemelo'],
+                        ['pliometria', 'Plio'],
+                        ['agilidad', 'Agilidad'],
+                        ['carrera', 'Carrera'],
+                        ['core', 'Core'],
+                        ['movilidad', 'Movilidad'],
+                      ].map(([gKey, gLabel]) => (
+                        <button
+                          key={gKey}
+                          type="button"
+                          onClick={() => setManualGrupoFiltro(gKey)}
+                          className={`px-2.5 py-1 rounded-full text-[10.5px] font-medium shrink-0 border transition ${
+                            manualGrupoFiltro === gKey
+                              ? 'bg-[#242938] text-white border-[#242938]'
+                              : 'bg-[#F5F5F7] text-[#4B5563] border-[#E5E7EB]'
+                          }`}
+                        >
+                          {gLabel}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto divide-y divide-[#ECEEF2] border border-[#ECEEF2] rounded-xl bg-white">
+                      {catalogoManualFiltrado.slice(0, 60).map((ej) => (
+                        <div
+                          key={ej.id}
+                          className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-[#F9FAFB]"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-[#1E2433] truncate">
+                              {ej.nombre}
+                            </p>
+                            <p className="text-[10px] text-[#6B7280] capitalize">
+                              {GRUPO_LABELS[ej.grupo] || ej.grupo} · {ej.tipo_registro}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => agregarEjercicioManual(ej)}
+                            className="h-7 px-2.5 rounded-full bg-[#FEF4EC] border border-[#EE8641]/40 text-[#EE8641] text-[11px] font-semibold shrink-0 hover:bg-[#FDE9D9]"
+                          >
+                            + Añadir
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manualGuardarFav}
+                      onChange={(e) => setManualGuardarFav(e.target.checked)}
+                      className="rounded border-[#D1D5DB] text-[#EE8641] focus:ring-[#EE8641]"
+                    />
+                    <span className="text-xs text-[#1E2433]">
+                      Guardar también en <strong>Mis Rutinas Favoritas</strong> para usarla otro día
+                    </span>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={aplicandoCambio || manualItems.length === 0}
+                    className="w-full h-11 rounded-full bg-[#242938] text-white text-xs font-semibold shadow-sm disabled:opacity-50"
+                  >
+                    {aplicandoCambio
+                      ? 'Aplicando entrenamiento...'
+                      : 'Aplicar entrenamiento a este día'}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </div>

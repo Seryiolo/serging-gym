@@ -211,6 +211,13 @@ test('seeds y pipeline de vídeos: 30 slugs personales mapeados 1-a-1, sin colis
   assert.ok(idsEj.size >= 95, `El catálogo debe tener al menos 95 ejercicios, encontrados: ${idsEj.size}`)
 
   for (const { slug } of finalists) {
+    if (slug === 'gemelo-barra-deficit') {
+      assert.ok(
+        sqlEj.includes('OCpCLsrYfUU'),
+        'El ejercicio 66 debe apuntar al Short validado OCpCLsrYfUU',
+      )
+      continue
+    }
     assert.ok(
       sqlEj.includes(`'/videos/rodilla/${slug}.mp4'`),
       `Falta el vídeo personal /videos/rodilla/${slug}.mp4 en seed_ejercicios.sql`

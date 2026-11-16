@@ -6,7 +6,13 @@
 import { requireUser } from './_lib/auth.js'
 import { getQuery, methodNotAllowed, readJson, sendJson, withErrorHandling } from './_lib/http.js'
 import { batch, execute, queryOne, readBatch } from './_lib/turso.js'
-import { candidatosParaSesion, candidatosSustitucion, evaluarRodillaUsuario } from './_lib/planner-db.js'
+import {
+  candidatosParaSesion,
+  candidatosSustitucion,
+  evaluarRodillaUsuario,
+  reemplazarSesionPorItems,
+  reemplazarSesionPorPlantilla,
+} from './_lib/planner-db.js'
 import { hoyMadrid, TZ } from '../shared/fechas.js'
 import {
   parseDecimal,
@@ -812,6 +818,319 @@ export default withErrorHandling(async function sesionHandler(req, res) {
       evaluacionRodilla: rodilla.evaluacion,
       rodilla,
     })
+  }
+
+  if (action === 'opciones_cambio_sesion') {
+    await execute(
+      `CREATE TABLE IF NOT EXISTS rutinas_favoritas (
+         id          INTEGER PRIMARY KEY AUTOINCREMENT,
+         user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         nombre      TEXT NOT NULL,
+         tipo        TEXT NOT NULL DEFAULT 'superior',
+         descripcion TEXT,
+         items_json  TEXT NOT NULL DEFAULT '[]',
+         creado_en   TEXT NOT NULL DEFAULT (datetime('now'))
+       )`,
+    )
+
+    const [plantillasRows, rutinasRows, catalogoRows] = await readBatch([
+      {
+        sql: `SELECT id, nombre, tipo, descripcion
+              FROM plantillas_sesion
+              WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
+              ORDER BY id ASC`,
+        args: [user.id],
+      },
+      {
+        sql: `SELECT id, nombre, tipo, descripcion, items_json, creado_en
+              FROM rutinas_favoritas
+              WHERE user_id = ?
+              ORDER BY id DESC`,
+        args: [user.id],
+      },
+      {
+        sql: `SELECT id, nombre, grupo, patron, tipo_registro, unilateral, equipamiento, poster_url, video_url
+              FROM ejercicios
+              WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
+              ORDER BY nombre ASC`,
+        args: [user.id],
+      },
+    ])
+
+    const ejMap = new Map((catalogoRows || []).map((e) => [Number(e.id), e]))
+    const rutinasFavoritas = (rutinasRows || []).map((r) => {
+      let rawItems = []
+      try {
+        rawItems = JSON.parse(r.items_json || '[]')
+      } catch {
+        rawItems = []
+      }
+      const items = (Array.isArray(rawItems) ? rawItems : [])
+        .map((it) => {
+          const ej = ejMap.get(Number(it.ejercicio_id))
+          if (!ej) return null
+          return {
+            ...it,
+            ejercicio_id: ej.id,
+            ejercicio_nombre: ej.nombre,
+            ejercicio_grupo: ej.grupo,
+            ejercicio_tipo_registro: ej.tipo_registro,
+          }
+        })
+        .filter(Boolean)
+
+      return {
+        id: r.id,
+        nombre: r.nombre,
+        tipo: r.tipo,
+        descripcion: r.descripcion,
+        creado_en: r.creado_en,
+        items,
+      }
+    })
+
+    const catalogoConPrescripcion = (catalogoRows || []).map((e) => ({
+      ...e,
+      prescripcion_sugerida: prescripcionPorDefecto(e),
+    }))
+
+    return sendJson(res, 200, {
+      plantillas: plantillasRows || [],
+      rutinasFavoritas,
+      catalogo: catalogoConPrescripcion,
+    })
+  }
+
+  if (action === 'guardar_rutina_favorita') {
+    await execute(
+      `CREATE TABLE IF NOT EXISTS rutinas_favoritas (
+         id          INTEGER PRIMARY KEY AUTOINCREMENT,
+         user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         nombre      TEXT NOT NULL,
+         tipo        TEXT NOT NULL DEFAULT 'superior',
+         descripcion TEXT,
+         items_json  TEXT NOT NULL DEFAULT '[]',
+         creado_en   TEXT NOT NULL DEFAULT (datetime('now'))
+       )`,
+    )
+
+    const nombre = String(body.nombre || '').trim().slice(0, 120)
+    if (nombre.length < 2) {
+      return sendJson(res, 400, { error: 'Indica un nombre para guardar la rutina en favoritos.' })
+    }
+
+    let tipo = String(body.tipo || 'superior').trim()
+    let descripcion =
+      typeof body.descripcion === 'string' && body.descripcion.trim()
+        ? body.descripcion.trim().slice(0, 300)
+        : null
+    let itemsParaGuardar = []
+
+    const desdeSesionId = Number(body.desdeSesionPlanId)
+    if (Number.isInteger(desdeSesionId) && desdeSesionId > 0) {
+      const [sesRows, sesItemsRows] = await readBatch([
+        {
+          sql: 'SELECT id, tipo, descripcion FROM sesiones_plan WHERE id = ? AND user_id = ? LIMIT 1',
+          args: [desdeSesionId, user.id],
+        },
+        {
+          sql: `SELECT se.bloque_orden, se.bloque_nombre, se.bloque_tipo, se.orden,
+                       se.ejercicio_id, se.series_obj, se.reps_obj, se.descanso_s, se.nota
+                FROM sesion_ejercicios se
+                JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
+                WHERE se.sesion_plan_id = ? AND sp.user_id = ?
+                ORDER BY se.bloque_orden ASC, se.orden ASC, se.id ASC`,
+          args: [desdeSesionId, user.id],
+        },
+      ])
+
+      const ses = sesRows[0]
+      if (!ses) {
+        return sendJson(res, 404, { error: 'La sesión indicada no existe.' })
+      }
+      tipo = ses.tipo || tipo
+      if (!descripcion && ses.descripcion) {
+        descripcion = ses.descripcion
+      }
+      itemsParaGuardar = (sesItemsRows || []).map((row) => ({
+        ejercicio_id: Number(row.ejercicio_id),
+        bloque_orden: Number(row.bloque_orden) || 1,
+        bloque_nombre: row.bloque_nombre || 'Bloque Principal',
+        bloque_tipo: row.bloque_tipo || 'fuerza',
+        series_obj: Number(row.series_obj) || 3,
+        reps_obj: String(row.reps_obj || '8-10'),
+        descanso_s: Number(row.descanso_s ?? 90),
+        nota: row.nota || null,
+      }))
+    } else if (Array.isArray(body.items)) {
+      itemsParaGuardar = body.items
+        .slice(0, 40)
+        .map((it) => {
+          const ejId = Number(it?.ejercicio_id)
+          if (!Number.isInteger(ejId) || ejId <= 0) return null
+          return {
+            ejercicio_id: ejId,
+            bloque_orden: Number(it.bloque_orden) > 0 ? Math.round(Number(it.bloque_orden)) : 1,
+            bloque_nombre:
+              typeof it.bloque_nombre === 'string' && it.bloque_nombre.trim()
+                ? it.bloque_nombre.trim().slice(0, 80)
+                : 'Bloque Principal',
+            bloque_tipo:
+              typeof it.bloque_tipo === 'string' && it.bloque_tipo.trim()
+                ? it.bloque_tipo.trim()
+                : 'fuerza',
+            series_obj:
+              Number(it.series_obj) > 0
+                ? Math.min(25, Math.max(1, Math.round(Number(it.series_obj))))
+                : 3,
+            reps_obj:
+              typeof it.reps_obj === 'string' && it.reps_obj.trim()
+                ? it.reps_obj.trim().slice(0, 60)
+                : '8-10',
+            descanso_s:
+              it.descanso_s != null && Number.isFinite(Number(it.descanso_s)) && Number(it.descanso_s) >= 0
+                ? Math.min(600, Math.round(Number(it.descanso_s)))
+                : 90,
+            nota:
+              typeof it.nota === 'string' && it.nota.trim()
+                ? it.nota.trim().slice(0, 300)
+                : null,
+          }
+        })
+        .filter(Boolean)
+    }
+
+    if (itemsParaGuardar.length === 0) {
+      return sendJson(res, 400, { error: 'La rutina debe tener al menos un ejercicio.' })
+    }
+
+    const ins = await execute(
+      `INSERT INTO rutinas_favoritas (user_id, nombre, tipo, descripcion, items_json)
+       VALUES (?, ?, ?, ?, ?)
+       RETURNING id, nombre, tipo, descripcion, creado_en`,
+      [user.id, nombre, tipo, descripcion, JSON.stringify(itemsParaGuardar)],
+    )
+
+    return sendJson(res, 201, {
+      ok: true,
+      rutina: {
+        ...(ins.rows[0] || { id: ins.lastInsertRowid, nombre, tipo, descripcion }),
+        items: itemsParaGuardar,
+      },
+    })
+  }
+
+  if (action === 'eliminar_rutina_favorita') {
+    const rutinaId = Number(body.rutinaId)
+    if (!Number.isInteger(rutinaId) || rutinaId <= 0) {
+      return sendJson(res, 400, { error: 'ID de rutina favorita no válido.' })
+    }
+    await execute('DELETE FROM rutinas_favoritas WHERE id = ? AND user_id = ?', [
+      rutinaId,
+      user.id,
+    ])
+    return sendJson(res, 200, { ok: true })
+  }
+
+  if (action === 'cambiar_sesion_dia') {
+    const sesionPlanId = Number(body.sesionPlanId)
+    if (!Number.isInteger(sesionPlanId) || sesionPlanId <= 0) {
+      return sendJson(res, 400, { error: 'ID de sesión planificada no válido.' })
+    }
+
+    const modo = String(body.modo || '').trim()
+
+    if (modo === 'plantilla') {
+      const plantillaId = Number(body.plantillaId)
+      if (!Number.isInteger(plantillaId) || plantillaId <= 0) {
+        return sendJson(res, 400, { error: 'Selecciona una plantilla válida.' })
+      }
+      await reemplazarSesionPorPlantilla(user.id, sesionPlanId, plantillaId)
+      return sendJson(res, 200, { ok: true, sesionPlanId })
+    }
+
+    if (modo === 'favorita') {
+      const rutinaId = Number(body.rutinaFavoritaId)
+      if (!Number.isInteger(rutinaId) || rutinaId <= 0) {
+        return sendJson(res, 400, { error: 'Selecciona una rutina favorita válida.' })
+      }
+      const rutina = await queryOne(
+        'SELECT id, nombre, tipo, descripcion, items_json FROM rutinas_favoritas WHERE id = ? AND user_id = ? LIMIT 1',
+        [rutinaId, user.id],
+      )
+      if (!rutina) {
+        return sendJson(res, 404, { error: 'Rutina favorita no encontrada.' })
+      }
+      let items = []
+      try {
+        items = JSON.parse(rutina.items_json || '[]')
+      } catch {
+        items = []
+      }
+      await reemplazarSesionPorItems(user.id, sesionPlanId, {
+        titulo: rutina.nombre,
+        tipo: rutina.tipo,
+        descripcion: rutina.descripcion || 'Rutina favorita personalizada',
+        items,
+      })
+      return sendJson(res, 200, { ok: true, sesionPlanId })
+    }
+
+    if (modo === 'manual') {
+      const titulo = String(body.titulo || 'Entrenamiento Personalizado').trim().slice(0, 120)
+      const tipo = String(body.tipo || 'superior').trim()
+      const descripcion =
+        typeof body.descripcion === 'string' && body.descripcion.trim()
+          ? body.descripcion.trim().slice(0, 300)
+          : 'Entrenamiento creado a medida'
+      const rawItems = Array.isArray(body.items) ? body.items : []
+
+      await reemplazarSesionPorItems(user.id, sesionPlanId, {
+        titulo,
+        tipo,
+        descripcion,
+        items: rawItems,
+      })
+
+      if (body.guardarEnFavoritos) {
+        await execute(
+          `CREATE TABLE IF NOT EXISTS rutinas_favoritas (
+             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+             user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+             nombre      TEXT NOT NULL,
+             tipo        TEXT NOT NULL DEFAULT 'superior',
+             descripcion TEXT,
+             items_json  TEXT NOT NULL DEFAULT '[]',
+             creado_en   TEXT NOT NULL DEFAULT (datetime('now'))
+           )`,
+        )
+        const itemsLimpios = rawItems
+          .slice(0, 40)
+          .map((it) => ({
+            ejercicio_id: Number(it.ejercicio_id),
+            bloque_orden: Number(it.bloque_orden) || 1,
+            bloque_nombre: it.bloque_nombre || 'Bloque Principal',
+            bloque_tipo: it.bloque_tipo || 'fuerza',
+            series_obj: Number(it.series_obj) || 3,
+            reps_obj: String(it.reps_obj || '8-10'),
+            descanso_s: Number(it.descanso_s ?? 90),
+            nota: it.nota || null,
+          }))
+          .filter((it) => Number.isInteger(it.ejercicio_id) && it.ejercicio_id > 0)
+
+        if (itemsLimpios.length > 0) {
+          await execute(
+            `INSERT INTO rutinas_favoritas (user_id, nombre, tipo, descripcion, items_json)
+             VALUES (?, ?, ?, ?, ?)`,
+            [user.id, titulo, tipo, descripcion, JSON.stringify(itemsLimpios)],
+          )
+        }
+      }
+
+      return sendJson(res, 200, { ok: true, sesionPlanId })
+    }
+
+    return sendJson(res, 400, { error: 'Modo de cambio de sesión no válido.' })
   }
 
   return sendJson(res, 400, { error: `Acción no reconocida en /api/sesion: ${action}` })

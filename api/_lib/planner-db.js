@@ -652,3 +652,400 @@ export async function candidatosParaSesion(userId, sesionPlanId, grupoSugerido =
     grupoRef: grupoPorDefecto,
   })
 }
+
+/**
+ * Reemplaza una sesión planificada concreta por una plantilla del sistema (1..7),
+ * aplicando las reglas de fase de rodilla, exclusión de material exterior/gym y
+ * rotación inteligente de ejercicios (incluyendo no repetir variables ya programadas
+ * en la misma semana ni en las últimas 8 semanas).
+ */
+export async function reemplazarSesionPorPlantilla(userId, sesionPlanId, plantillaId) {
+  const sesion = await queryOne(
+    'SELECT id, fecha, estado FROM sesiones_plan WHERE id = ? AND user_id = ? LIMIT 1',
+    [sesionPlanId, userId],
+  )
+  if (!sesion) {
+    throw httpError(404, 'No se encontró la sesión planificada.')
+  }
+
+  const lunes = lunesDe(sesion.fecha)
+  const domingo = addDias(lunes, 6)
+  const desdeHistorial = addDias(lunes, -56)
+
+  const [rodillaRows, fasesRows, catalogo, plantillasRows, bloquesRows, huecosRows, historialRows] =
+    await readBatch([
+      {
+        sql: `SELECT er.fase_id, fr.impacto_max
+              FROM estado_rodilla er
+              JOIN fases_rodilla fr ON fr.id = er.fase_id
+              WHERE er.user_id = ? LIMIT 1`,
+        args: [userId],
+      },
+      { sql: 'SELECT id, impacto_max FROM fases_rodilla ORDER BY id ASC', args: [] },
+      {
+        sql: `SELECT id, user_id, nombre, grupo, patron, tipo_registro, unilateral, impacto,
+                     fase_rodilla_min, equipamiento, instrucciones, video_url,
+                     poster_url, video_origen, activo
+              FROM ejercicios
+              WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
+              ORDER BY id ASC`,
+        args: [userId],
+      },
+      {
+        sql: `SELECT id, nombre, tipo, descripcion
+              FROM plantillas_sesion
+              WHERE activo = 1 AND (user_id IS NULL OR user_id = ?)
+              ORDER BY id ASC`,
+        args: [userId],
+      },
+      {
+        sql: 'SELECT id, plantilla_id, orden, nombre, tipo FROM plantilla_bloques ORDER BY plantilla_id ASC, orden ASC',
+        args: [],
+      },
+      {
+        sql: `SELECT id, bloque_id, orden, rol, ejercicio_id, filtro_grupo, filtro_patron,
+                     filtro_tipo_registro, rotacion, superserie, series, reps,
+                     rpe_objetivo, descanso_s, nota
+              FROM plantilla_huecos
+              ORDER BY bloque_id ASC, orden ASC`,
+        args: [],
+      },
+      {
+        sql: `SELECT sp.id AS sesion_id, sp.plantilla_id, sp.fecha, se.bloque_orden, se.orden, se.ejercicio_id
+              FROM sesion_ejercicios se
+              JOIN sesiones_plan sp ON sp.id = se.sesion_plan_id
+              WHERE sp.user_id = ? AND sp.fecha >= ? AND sp.fecha <= ? AND sp.id != ?
+              ORDER BY
+                CASE WHEN sp.fecha >= ? THEN 0 ELSE 1 END ASC,
+                sp.fecha DESC,
+                se.id DESC`,
+        args: [userId, desdeHistorial, domingo, sesionPlanId, lunes],
+      },
+    ])
+
+  const huecosPorBloque = new Map()
+  for (const h of huecosRows) {
+    if (!huecosPorBloque.has(h.bloque_id)) huecosPorBloque.set(h.bloque_id, [])
+    huecosPorBloque.get(h.bloque_id).push(h)
+  }
+
+  const bloquesPorPlantilla = new Map()
+  for (const b of bloquesRows) {
+    if (!bloquesPorPlantilla.has(b.plantilla_id)) bloquesPorPlantilla.set(b.plantilla_id, [])
+    bloquesPorPlantilla.get(b.plantilla_id).push({
+      ...b,
+      huecos: huecosPorBloque.get(b.id) || [],
+    })
+  }
+
+  const plantillasMap = new Map()
+  for (const p of plantillasRows) {
+    plantillasMap.set(Number(p.id), {
+      ...p,
+      keyId: Number(p.id),
+      bloques: bloquesPorPlantilla.get(p.id) || [],
+    })
+  }
+
+  const pid = Number(plantillaId)
+  const plantilla =
+    plantillasMap.get(pid) || (pid === T.PIERNA_B ? FALLBACK_PIERNA_B : null)
+  if (!plantilla) {
+    throw httpError(404, 'Plantilla de entrenamiento no encontrada.')
+  }
+
+  const historialMap = new Map()
+  const vistoClavePorSlot = new Set()
+  for (const row of historialRows) {
+    const pKey = row.plantilla_id ?? T.PIERNA_B
+    const slotKey = `${pKey}:${row.bloque_orden}:${row.orden}`
+    const esMismaSemana = row.fecha >= lunes && row.fecha <= domingo
+    const dedupKey = esMismaSemana
+      ? `${slotKey}:ses:${row.sesion_id}`
+      : `${slotKey}:sem:${lunesDe(row.fecha)}`
+    if (vistoClavePorSlot.has(dedupKey)) continue
+    vistoClavePorSlot.add(dedupKey)
+    if (!historialMap.has(slotKey)) historialMap.set(slotKey, [])
+    historialMap.get(slotKey).push({ ejercicio_id: row.ejercicio_id })
+  }
+
+  const faseFallback = fasesRows[0] || { id: 1, impacto_max: 1 }
+  const ctx = {
+    faseId: rodillaRows[0]?.fase_id ?? faseFallback.id,
+    impactoMax: rodillaRows[0]?.impacto_max ?? faseFallback.impacto_max,
+  }
+  const catalogoMap = new Map(catalogo.map((e) => [e.id, e]))
+
+  const dbPlantillaId = plantillasMap.has(pid) ? plantilla.id : null
+  const stmts = [
+    {
+      sql: `UPDATE series_registradas
+            SET sesion_ejercicio_id = NULL
+            WHERE sesion_ejercicio_id IN (
+              SELECT id FROM sesion_ejercicios WHERE sesion_plan_id = ?
+            )`,
+      args: [sesionPlanId],
+    },
+    {
+      sql: 'DELETE FROM sesion_ejercicios WHERE sesion_plan_id = ?',
+      args: [sesionPlanId],
+    },
+    {
+      sql: `UPDATE sesiones_plan
+            SET plantilla_id = ?, tipo = ?, titulo = ?, descripcion = ?
+            WHERE id = ? AND user_id = ?`,
+      args: [
+        dbPlantillaId,
+        plantilla.tipo,
+        plantilla.nombre,
+        plantilla.descripcion || null,
+        sesionPlanId,
+        userId,
+      ],
+    },
+  ]
+
+  const usadosEnSesion = new Set()
+  const esSesionExterior =
+    plantilla.tipo === 'carrera' || plantilla.tipo === 'pliometria_agilidad'
+  const ctxSesion = {
+    ...ctx,
+    impactoMax: esSesionExterior ? Math.max(ctx.impactoMax, 2) : ctx.impactoMax,
+    excluirEquipo: esSesionExterior
+      ? [
+          'barra',
+          'mancuerna',
+          'maquina',
+          'máquina',
+          'polea',
+          'rack',
+          'multipower',
+          'prensa',
+          'fitball',
+          'landmine',
+          'trineo',
+          'kettlebell',
+          'disco',
+        ]
+      : ['conos', 'pista', 'vallas'],
+  }
+
+  for (const bloque of plantilla.bloques) {
+    for (const hueco of bloque.huecos) {
+      const resuelto = resolverEjercicioHueco({
+        hueco,
+        plantillaKey: plantilla.keyId ?? pid,
+        bloqueOrden: bloque.orden,
+        lunes: sesion.fecha,
+        userId,
+        catalogo,
+        catalogoMap,
+        ctx: ctxSesion,
+        historialMap,
+        usadosEnSesion,
+      })
+
+      if (!resuelto.ejercicioId) continue
+      usadosEnSesion.add(resuelto.ejercicioId)
+
+      const ejResuelto = catalogoMap.get(resuelto.ejercicioId)
+      const usarPrescripcionPropia =
+        ejResuelto &&
+        ejResuelto.grupo === 'carrera' &&
+        resuelto.ejercicioId !== hueco.ejercicio_id &&
+        bloque.tipo === 'carrera'
+      const prescPropia = usarPrescripcionPropia ? prescripcionPorDefecto(ejResuelto) : null
+
+      const notaBase = prescPropia?.nota || hueco.nota || null
+      const notaFinal = resuelto.adaptadoRodilla
+        ? `${notaBase ? `${notaBase} · ` : ''}(Adaptado a tu fase actual de rodilla)`
+        : notaBase
+
+      stmts.push({
+        sql: `INSERT INTO sesion_ejercicios (
+                sesion_plan_id, bloque_orden, bloque_nombre, bloque_tipo,
+                orden, ejercicio_id, rol, superserie, series_obj, reps_obj,
+                rpe_obj, descanso_s, nota, sustituye_a
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          sesionPlanId,
+          bloque.orden,
+          bloque.nombre,
+          bloque.tipo,
+          hueco.orden,
+          resuelto.ejercicioId,
+          hueco.rol,
+          hueco.superserie ?? null,
+          prescPropia?.series_obj ?? hueco.series ?? 3,
+          prescPropia?.reps_obj ?? hueco.reps ?? '8-10',
+          hueco.rpe_objetivo ?? null,
+          prescPropia?.descanso_s ?? hueco.descanso_s ?? 90,
+          notaFinal,
+          resuelto.sustituyeA,
+        ],
+      })
+    }
+  }
+
+  await batch(stmts)
+  return { ok: true, sesionPlanId }
+}
+
+/**
+ * Reemplaza una sesión planificada por una lista personalizada de ejercicios
+ * (procedente de una rutina favorita o del creador manual).
+ */
+export async function reemplazarSesionPorItems(
+  userId,
+  sesionPlanId,
+  { titulo, tipo, descripcion = null, items = [] },
+) {
+  const sesion = await queryOne(
+    'SELECT id FROM sesiones_plan WHERE id = ? AND user_id = ? LIMIT 1',
+    [sesionPlanId, userId],
+  )
+  if (!sesion) {
+    throw httpError(404, 'No se encontró la sesión planificada.')
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw httpError(400, 'El entrenamiento debe incluir al menos un ejercicio.')
+  }
+
+  const ids = Array.from(
+    new Set(
+      items
+        .map((it) => Number(it.ejercicio_id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  )
+  if (ids.length === 0) {
+    throw httpError(400, 'Selecciona al menos un ejercicio válido.')
+  }
+
+  const placeholders = ids.map(() => '?').join(',')
+  const [ejRows] = await readBatch([
+    {
+      sql: `SELECT id, nombre, grupo, patron, tipo_registro, unilateral, instrucciones
+            FROM ejercicios
+            WHERE id IN (${placeholders}) AND activo = 1 AND (user_id IS NULL OR user_id = ?)`,
+      args: [...ids, userId],
+    },
+  ])
+  const ejMap = new Map((ejRows || []).map((e) => [Number(e.id), e]))
+
+  const itemsValidos = items
+    .map((it) => {
+      const ej = ejMap.get(Number(it.ejercicio_id))
+      if (!ej) return null
+      const presc = prescripcionPorDefecto(ej)
+      return {
+        ej,
+        bloque_orden:
+          Number.isInteger(Number(it.bloque_orden)) && Number(it.bloque_orden) > 0
+            ? Number(it.bloque_orden)
+            : 1,
+        bloque_nombre:
+          typeof it.bloque_nombre === 'string' && it.bloque_nombre.trim()
+            ? it.bloque_nombre.trim().slice(0, 80)
+            : 'Bloque Principal',
+        bloque_tipo:
+          typeof it.bloque_tipo === 'string' && it.bloque_tipo.trim()
+            ? it.bloque_tipo.trim()
+            : ej.grupo === 'carrera'
+              ? 'carrera'
+              : ej.grupo === 'movilidad'
+                ? 'preparacion'
+                : 'fuerza',
+        series_obj:
+          Number(it.series_obj) > 0
+            ? Math.min(25, Math.max(1, Math.round(Number(it.series_obj))))
+            : presc.series_obj,
+        reps_obj:
+          typeof it.reps_obj === 'string' && it.reps_obj.trim()
+            ? it.reps_obj.trim().slice(0, 60)
+            : presc.reps_obj,
+        descanso_s:
+          it.descanso_s != null && Number.isFinite(Number(it.descanso_s)) && Number(it.descanso_s) >= 0
+            ? Math.min(600, Math.round(Number(it.descanso_s)))
+            : presc.descanso_s,
+        nota:
+          typeof it.nota === 'string' && it.nota.trim()
+            ? it.nota.trim().slice(0, 300)
+            : presc.nota,
+      }
+    })
+    .filter(Boolean)
+
+  if (itemsValidos.length === 0) {
+    throw httpError(400, 'Ninguno de los ejercicios seleccionados está disponible.')
+  }
+
+  const tituloFinal =
+    typeof titulo === 'string' && titulo.trim()
+      ? titulo.trim().slice(0, 120)
+      : 'Entrenamiento Personalizado'
+  const tiposPermitidos = new Set([
+    'superior',
+    'inferior',
+    'pliometria_agilidad',
+    'carrera',
+    'movilidad_core',
+    'mixta',
+  ])
+  const tipoFinal = tiposPermitidos.has(tipo) ? tipo : 'superior'
+  const descFinal =
+    typeof descripcion === 'string' && descripcion.trim()
+      ? descripcion.trim().slice(0, 300)
+      : 'Sesión personalizada a medida'
+
+  const stmts = [
+    {
+      sql: `UPDATE series_registradas
+            SET sesion_ejercicio_id = NULL
+            WHERE sesion_ejercicio_id IN (
+              SELECT id FROM sesion_ejercicios WHERE sesion_plan_id = ?
+            )`,
+      args: [sesionPlanId],
+    },
+    {
+      sql: 'DELETE FROM sesion_ejercicios WHERE sesion_plan_id = ?',
+      args: [sesionPlanId],
+    },
+    {
+      sql: `UPDATE sesiones_plan
+            SET plantilla_id = NULL, tipo = ?, titulo = ?, descripcion = ?
+            WHERE id = ? AND user_id = ?`,
+      args: [tipoFinal, tituloFinal, descFinal, sesionPlanId, userId],
+    },
+  ]
+
+  const ordenPorBloque = new Map()
+  for (const item of itemsValidos) {
+    const bOrd = item.bloque_orden
+    const nextOrd = (ordenPorBloque.get(bOrd) || 0) + 1
+    ordenPorBloque.set(bOrd, nextOrd)
+
+    stmts.push({
+      sql: `INSERT INTO sesion_ejercicios (
+              sesion_plan_id, bloque_orden, bloque_nombre, bloque_tipo,
+              orden, ejercicio_id, rol, superserie, series_obj, reps_obj,
+              rpe_obj, descanso_s, nota, sustituye_a
+            ) VALUES (?, ?, ?, ?, ?, ?, 'variable', NULL, ?, ?, 8.0, ?, ?, NULL)`,
+      args: [
+        sesionPlanId,
+        bOrd,
+        item.bloque_nombre,
+        item.bloque_tipo,
+        nextOrd,
+        item.ej.id,
+        item.series_obj,
+        item.reps_obj,
+        item.descanso_s,
+        item.nota,
+      ],
+    })
+  }
+
+  await batch(stmts)
+  return { ok: true, sesionPlanId }
+}

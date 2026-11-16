@@ -267,4 +267,16 @@ CREATE TABLE IF NOT EXISTS login_intentos (
   desde    INTEGER NOT NULL
 );
 
-INSERT OR REPLACE INTO meta (clave, valor) VALUES ('schema_version', '2');
+-- ---------------------------------------------------------- RUTINAS FAVORITAS PERSONALIZADAS
+CREATE TABLE IF NOT EXISTS rutinas_favoritas (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nombre      TEXT NOT NULL,
+  tipo        TEXT NOT NULL DEFAULT 'superior',
+  descripcion TEXT,
+  items_json  TEXT NOT NULL DEFAULT '[]',
+  creado_en   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rutinas_fav_user ON rutinas_favoritas(user_id);
+
+INSERT OR REPLACE INTO meta (clave, valor) VALUES ('schema_version', '3');

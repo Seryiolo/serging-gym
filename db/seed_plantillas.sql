@@ -82,7 +82,7 @@ VALUES
 (206, 22, 2, 'variable', 67, 'cuadriceps', NULL, 'fuerza', 'semanal', NULL, 3, '8+8', 8.0, 90, 'Fuerza unilateral de cuádriceps con alineación estricta'),
 (207, 23, 1, 'variable', 33, 'gluteo', NULL, 'fuerza', 'semanal', 2, 3, '8+8', 7.5, 30, 'Estabilidad en plano frontal y glúteo medio'),
 (208, 23, 2, 'ancla', 60, NULL, NULL, NULL, 'nunca', 2, 3, '8+8', 8.5, 75, 'Puente de isquios unilateral para co-contracción protectora'),
-(209, 23, 3, 'variable', 35, 'cuadriceps', NULL, 'isometrico', 'semanal', NULL, 3, '30 seg/lado', 8.0, 60, 'Isométrico tendinoso rotuliano'),
+(209, 23, 3, 'variable', 35, 'cuadriceps', NULL, 'fuerza', 'semanal', NULL, 3, '8-10 reps/lado', 8.0, 90, 'Fuerza tendinoso rotuliano'),
 (210, 23, 4, 'ancla', 66, NULL, NULL, NULL, 'nunca', NULL, 3, '10-12', 8.0, 60, 'Fuerza de gemelo y Aquiles en déficit'),
 
 -- --- 3. CARRERA PISTA ---

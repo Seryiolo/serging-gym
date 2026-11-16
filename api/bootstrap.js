@@ -30,6 +30,7 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
 
   const lunesResumen = esISO(q.lunes) ? lunesDe(q.lunes) : lunesDe(hoy)
   const domingoResumen = addDias(lunesResumen, 6)
+  const lunesAuto = lunesResumen >= LUNES_INICIO_ENTRENO ? lunesResumen : LUNES_INICIO_ENTRENO
 
   let desdeMes = addDias(lunesRef, -35)
   let hastaMes = addDias(lunesRef, 42)
@@ -148,15 +149,15 @@ export default withErrorHandling(async function bootstrapHandler(req, res) {
     },
     {
       sql: 'SELECT id FROM semanas WHERE user_id = ? AND lunes = ? LIMIT 1',
-      args: [user.id, LUNES_INICIO_ENTRENO],
+      args: [user.id, lunesAuto],
     },
   ])
 
-  // Si es la primera vez absoluta y aún no existe la semana del 16 de noviembre, generarla
+  // Si aún no existe la semana en curso (o la de inicio), generarla automáticamente
   if (!semanaInicioRows || semanaInicioRows.length === 0) {
     try {
       const gen = await generarSemanaPlan(user.id, {
-        lunes: LUNES_INICIO_ENTRENO,
+        lunes: lunesAuto,
         dias: 5,
         hayCarrera: false,
         segundoSuperior: false,
